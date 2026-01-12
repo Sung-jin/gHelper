@@ -1,0 +1,43 @@
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- IDEs (IntelliJ, VS Code) ---
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+out/
+
+# --- Node.js (Frontend / Electron) ---
+node_modules/
+dist/
+dist-electron/
+release/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Python (Engine) ---
+# 가상환경 폴더 (OS간 호환이 안 되므로 제외)
+engine/venv/
+engine/.venv/
+
+# Python 컴파일 파일
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Project Specific (Output Files) ---
+# 모니터링 결과로 생성되는 로그 파일들
+packet_dump_*.txt
+packet_log.txt
+
+# 빌드 결과물 파일들 (.exe, .dmg, .zip 등)
+*.exe
+*.dmg
+*.zip
+*.AppImage
