@@ -23,10 +23,15 @@
         "from": "engine",
         "to": "engine",
         "filter": [
-          "**/*"
+          "**/*",
+          "!venv"
         ]
       }
-    ]
+    ],
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.utilities"
+    }
   },
   "keywords": [],
   "author": "",
