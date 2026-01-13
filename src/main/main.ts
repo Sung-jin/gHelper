@@ -1,126 +1,133 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
-import { spawn, ChildProcess } from 'child_process'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import * as fs from 'fs'
+import { app, BrowserWindow, ipcMain } from 'electron';
+import * as path from 'path';
+import { spawn, ChildProcess } from 'child_process';
+import * as fs from 'fs';
+import { fileURLToPath } from 'url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-let mainWindow: BrowserWindow | null = null
-let pythonProcess: ChildProcess | null = null // 실시간 모니터링용 프로세스
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+let mainWindow: BrowserWindow | null = null;
+let pythonProcess: ChildProcess | null = null;
 
-// 실행 환경에 따른 자원(Resources) 경로 결정
-const getResourcePath = (relativePath: string) => {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, relativePath) // 빌드된 상태 (resources 폴더 내부)
-    : path.join(app.getAppPath(), relativePath);    // 개발 상태 (프로젝트 루트)
-}
+// 1. 로그 저장 설정 (yyyy-MM-dd.log)
+const getLogFilePath = () => {
+  const logDir = path.join(app.getPath('userData'), 'logs'); // 사용자 데이터 폴더 내 logs
+  if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+
+  const today = new Date().toISOString().split('T')[0];
+  return path.join(logDir, `${today}.log`);
+};
+
+const appendLogToFile = (message: string) => {
+  const logPath = getLogFilePath();
+  const timestamp = new Date().toLocaleTimeString();
+  fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
+};
 
 function createWindow() {
-  const isDev = !!process.env.VITE_DEV_SERVER_URL;
-
-  // 빌드 구조상 main.js와 같은 위치에 preload.mjs 또는 preload.js가 있는지 확인
-  // electron-vite-plugin은 보통 확장자를 .mjs나 .js로 빌드합니다.
-  let preloadPath = path.join(__dirname, 'preload.js');
-
-  // 만약 위 경로에 없다면 상위 폴더나 .mjs 확장자 등을 체크해봅니다.
-  if (!fs.existsSync(preloadPath)) {
-    preloadPath = path.join(__dirname, 'preload.mjs');
-  }
-
-  console.log("--- Path Debugging ---");
-  console.log("Current __dirname:", __dirname);
-  console.log("Target Preload Path:", preloadPath);
-  console.log("File Exists?:", fs.existsSync(preloadPath));
-  console.log("----------------------");
-
   mainWindow = new BrowserWindow({
     width: 1000,
     height: 800,
     webPreferences: {
-      preload: preloadPath,
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-    }
-  })
+    },
+  });
 
-  if (isDev) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
-  }
+  // 개발 모드와 프로덕션 모드 경로 구분
+  const startUrl = process.env.NODE_ENV === 'development'
+    ? 'http://localhost:5173'
+    : `file://${path.join(__dirname, '../dist/index.html')}`;
+
+  mainWindow.loadURL(startUrl);
 }
 
-// 1. 프로세스 목록 가져오기 (단회성 실행)
+// 2. 프로세스 목록 가져오기 (Windows/Mac 공용)
 ipcMain.handle('get-process-list', async () => {
-  return new Promise((resolve, reject) => {
-    const pythonPath = path.join(app.getAppPath(), 'engine/venv/bin/python');
-    const scriptPath = path.join(app.getAppPath(), 'engine/utils.py');
-    const py = spawn(pythonPath, [scriptPath]);
+  return new Promise((resolve) => {
+    const command = process.platform === 'win32'
+      ? 'tasklist /fo csv /nh'
+      : 'ps -ax -o pid,comm';
 
-    let result = '';
-    py.stdout.on('data', (data) => { result += data.toString(); });
-    py.on('close', (code) => {
-      if (code === 0) {
-        try { resolve(JSON.parse(result)); }
-        catch (e) { reject('JSON 파싱 에러'); }
-      } else { reject(`실패 코드: ${code}`); }
+    const proc = spawn(command, { shell: true });
+    let output = '';
+
+    proc.stdout.on('data', (data) => { output += data.toString(); });
+    proc.on('close', () => {
+      const lines = output.trim().split('\n');
+      const processList = lines.map(line => {
+        if (process.platform === 'win32') {
+          const parts = line.split('","');
+          return { pid: parseInt(parts[1]), name: parts[0].replace(/"/g, '') };
+        } else {
+          const parts = line.trim().split(/\s+/);
+          return { pid: parseInt(parts[0]), name: parts.slice(1).join(' ') };
+        }
+      }).filter(p => !isNaN(p.pid));
+      resolve(processList);
     });
   });
 });
 
-// 2. 선택한 PID로 모니터링 시작 (지속적 실행)
+// 3. 모니터링 시작 (Python 엔진 실행)
 ipcMain.handle('start-monitoring', async (_event, pid: number) => {
-  if (pythonProcess) pythonProcess.kill()
+  if (pythonProcess) {
+    pythonProcess.kill();
+  }
 
-  const isWin = process.platform === 'win32'
+  // 프로젝트 루트 경로 확보 (dist-electron 기준이 아닌 실행 경로 기준)
+  const PROJECT_ROOT = app.isPackaged
+    ? process.resourcesPath
+    : process.cwd();
 
-  // 1. OS에 따른 가상환경 내 파이썬 경로 설정
-  const pythonBin = isWin
-    ? 'Scripts/python.exe'
-    : 'bin/python'
+  // 가상환경 내 파이썬 실행 파일 경로 설정
+  const venvPath = app.isPackaged
+    ? path.join(PROJECT_ROOT, 'engine', 'venv')
+    : path.join(PROJECT_ROOT, 'engine', 'venv');
 
-  const pythonPath = getResourcePath(path.join('engine', 'venv', pythonBin))
-  const scriptPath = getResourcePath(path.join('engine', 'monitor.py'))
+  const pythonExec = process.platform === 'win32'
+    ? path.join(venvPath, 'Scripts', 'python.exe')
+    : path.join(venvPath, 'bin', 'python');
 
-  console.log(`Executing: ${pythonPath} with script ${scriptPath}`)
+  const scriptPath = path.join(PROJECT_ROOT, 'engine', 'monitor.py');
 
-  // 2. 프로세스 실행
-  pythonProcess = spawn(pythonPath, [scriptPath, pid.toString()])
+  try {
+    pythonProcess = spawn(pythonExec, [scriptPath, pid.toString()]);
 
-  pythonProcess.stdout?.on('data', (data) => {
-    const message = data.toString()
-    _event.sender.send('packet-data', message)
-  })
+    // 표준 출력 (로그 데이터)
+    pythonProcess.stdout?.on('data', (data) => {
+      const line = data.toString().trim();
+      if (line) {
+        mainWindow?.webContents.send('log-update', line); // UI 전송
+        appendLogToFile(line); // 파일 저장
+      }
+    });
 
-  pythonProcess.stderr?.on('data', (data) => {
-    const errorMsg = data.toString()
-    console.error(`[Python Error]: ${errorMsg}`)
+    // 표준 에러 (권한 오류 등 상태값)
+    pythonProcess.stderr?.on('data', (data) => {
+      const errorMsg = data.toString();
+      mainWindow?.webContents.send('status-update', errorMsg);
+      appendLogToFile(`ERROR: ${errorMsg}`);
+    });
 
-    // 권한 관련 핵심 키워드가 포함되어 있다면 UI에 알림
-    if (errorMsg.includes('PermissionError') || errorMsg.includes('operation not permitted')) {
-      mainWindow?.webContents.send('status-update', 'Permission denied')
-    }
-  })
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
 
-  pythonProcess.on('error', (err) => {
-    mainWindow?.webContents.send('status-update', `Failed to start: ${err.message}`)
-  })
-
-  return true
-})
-
+// 4. 모니터링 중지
 ipcMain.handle('stop-monitoring', async () => {
   if (pythonProcess) {
-    pythonProcess.kill(); // 프로세스 살해(?)
-    pythonProcess = null;  // 참조 초기화
-    console.log('Monitoring process stopped.');
+    pythonProcess.kill();
+    pythonProcess = null;
     return true;
   }
   return false;
 });
 
-app.whenReady().then(createWindow)
+app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
   if (pythonProcess) pythonProcess.kill();
