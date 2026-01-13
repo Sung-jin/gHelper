@@ -34,7 +34,7 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m venv engine/venv
-          ${{ matrix.os == 'windows-latest' && './engine/venv/Scripts/pip' || './engine/venv/bin/pip' }} install scapy
+          ${{ matrix.os == 'windows-latest' && './engine/venv/Scripts/pip' || './engine/venv/bin/pip' }} install -r requirements.txt
         shell: bash
 
       # 2. Node.js 의존성 설치
