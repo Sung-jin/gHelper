@@ -2,8 +2,7 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
-    "moduleResolution": "Node",
-    "moduleDetection": "force",
+    "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -11,12 +10,10 @@
     "jsx": "preserve",
     "strict": true,
     "skipLibCheck": true,
-    "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/render/*"]
-    },
-    "types": ["node", "vite/client"]
+    }
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"]
 }
