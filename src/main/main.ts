@@ -35,12 +35,13 @@ function createWindow() {
     },
   });
 
-  // 개발 모드와 프로덕션 모드 경로 구분
-  const startUrl = process.env.NODE_ENV === 'development'
-    ? 'http://localhost:5173'
-    : `file://${path.join(__dirname, '../dist/index.html')}`;
-
-  mainWindow.loadURL(startUrl);
+  if (!app.isPackaged && process.env.NODE_ENV === 'development') {
+    // 개발 모드: Vite 개발 서버 연결
+    mainWindow.loadURL('http://localhost:5173');
+  } else {
+    // 프로덕션 모드: 빌드된 index.html 파일을 직접 로드
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+  }
 }
 
 // 2. 프로세스 목록 가져오기 (Windows/Mac 공용)
