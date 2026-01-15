@@ -41,7 +41,7 @@ function createWindow() {
   } else {
     // 프로덕션 모드: 빌드된 index.html 파일을 직접 로드
     const indexPath = path.join(app.getAppPath(), 'dist/index.html');
-    win.loadFile(indexPath);
+    mainWindow.loadFile(indexPath);
   }
 }
 
