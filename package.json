@@ -30,7 +30,8 @@
     ],
     "mac": {
       "target": ["dmg"],
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "arch": ["universal"]
     }
   },
   "keywords": [],
