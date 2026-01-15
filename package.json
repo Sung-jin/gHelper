@@ -15,8 +15,18 @@
       "output": "dist"
     },
     "win": {
-      "target": "portable",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
       "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true, // 사용자가 직접 경로를 선택하게 함
+      "shortcutName": "G-Helper"
     },
     "extraResources": [
       {
