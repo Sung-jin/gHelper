@@ -26,7 +26,8 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "G-Helper"
+      "shortcutName": "G-Helper",
+      "perMachine": true
     },
     "extraResources": [
       {
