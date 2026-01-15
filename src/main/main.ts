@@ -40,7 +40,8 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173');
   } else {
     // 프로덕션 모드: 빌드된 index.html 파일을 직접 로드
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    const indexPath = path.join(app.getAppPath(), 'dist/index.html');
+    win.loadFile(indexPath);
   }
 }
 
