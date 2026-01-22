@@ -6,11 +6,27 @@
   "scripts": {
     "dev": "vite --force",
     "build": "vue-tsc && vite build && electron-builder",
-    "preview": "vite preview"
+    "preview": "vite preview",
+
+    "pip:install": "pip install -r engine/requirements.txt",
+    "pip:install-tools": "pip install -r engine/tools/requirements.txt",
+    "pip:install-all": "npm run pip:install && npm run pip:install-tools",
+    "pip:update-req": "pipreqs ./engine --ignore engine/tools,engine/tests --force",
+    "pip:update-tools-req": "pipreqs ./engine/tools --force",
+    "pip:update-tests-req": "pipreqs ./engine/tests --force",
+    "pip:update-all": "npm run pip:update-req && npm run pip:update-tools-req && npm run pip:update-tests-req"
   },
   "build": {
     "appId": "com.example.ghelper",
     "productName": "G-Helper",
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/*.ts",
+      "!*.map"
+    ],
     "directories": {
       "output": "dist"
     },
@@ -26,15 +42,21 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "G-Helper"
+      "shortcutName": "G-Helper",
+      "perMachine": true
     },
     "extraResources": [
       {
         "from": "engine",
         "to": "engine",
         "filter": [
-          "**/*",
-          "!venv"
+          "monitor.py",
+          "utils.py",
+          "requirements.txt",
+          "!tools/**/*",
+          "!tests/**/*",
+          "!venv/**/*",
+          "!**/__pycache__"
         ]
       }
     ],
