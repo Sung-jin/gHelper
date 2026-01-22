@@ -30,6 +30,7 @@ engine/.venv/
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 # --- Project Specific (Output Files) ---
 # 모니터링 결과로 생성되는 로그 파일들
@@ -41,3 +42,7 @@ packet_log.txt
 *.dmg
 *.zip
 *.AppImage
+
+# PyInstaller 빌드 관련
+build/
+*.spec

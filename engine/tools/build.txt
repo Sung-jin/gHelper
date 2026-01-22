@@ -1,0 +1,1 @@
+pyinstaller --onefile --uac-admin --name "PacketAnalyzer" engine/tools/analyzer.py

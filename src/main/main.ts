@@ -78,9 +78,9 @@ ipcMain.handle('start-monitoring', async (_event, pid: number) => {
   }
 
   // 프로젝트 루트 경로 확보 (dist-electron 기준이 아닌 실행 경로 기준)
-  const PROJECT_ROOT = app.isPackaged
-    ? process.resourcesPath
-    : process.cwd();
+  const PROJECT_ROOT = app.isPackaged ?
+    path.dirname(app.getPath('exe')) :
+    app.getAppPath();
 
   // 가상환경 내 파이썬 실행 파일 경로 설정
   const venvPath = app.isPackaged
