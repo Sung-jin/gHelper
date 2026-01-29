@@ -23,7 +23,7 @@ export class EternalCityManager extends EngineManagerBase {
         };
 
         if (this.discordWebhookUrl) {
-          sendDiscordMessage(this.discordWebhookUrl, payload).catch(console.error);
+          sendDiscordMessage(this.discordWebhookUrl, discordPayload).catch(console.error);
         }
 
         break;

@@ -1,13 +1,8 @@
-import https from 'https';
+import * as https from 'https';
+import { IncomingMessage } from 'http';
 
-export const sendDiscordMessage = (webhookUrl: string, payload: object): Promise<void> => {
+export const sendDiscordMessage = (webhookUrl: string, payload: any): Promise<void> => {
   return new Promise((resolve, reject) => {
-    if (!webhookUrl) {
-      console.warn('[DiscordHelper] Webhook URL is missing.');
-      return resolve();
-    }
-
-    const data = JSON.stringify(payload);
     const url = new URL(webhookUrl);
 
     const options = {
@@ -16,24 +11,28 @@ export const sendDiscordMessage = (webhookUrl: string, payload: object): Promise
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(data),
       },
     };
 
-    const req = https.request(options, (res) => {
-      if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-        resolve();
-      } else {
-        reject(new Error(`[DiscordHelper] Failed with status code: ${res.statusCode}`));
-      }
+    // 2. res 인자에 IncomingMessage 타입 지정
+    const req = https.request(options, (res: IncomingMessage) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          resolve();
+        } else {
+          reject(new Error(`Status Code: ${res.statusCode}`));
+        }
+      });
     });
 
-    req.on('error', (error) => {
-      console.error('[DiscordHelper] Request Error:', error);
+    // 3. error 인자에 Error 타입 지정
+    req.on('error', (error: Error) => {
       reject(error);
     });
 
-    req.write(data);
+    req.write(JSON.stringify(payload));
     req.end();
   });
 };
