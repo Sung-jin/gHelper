@@ -4,6 +4,7 @@ import { sendDiscordMessage } from '@util/discordHelper'
 import { calculateEntryTime } from '@util/timeHelper'
 
 export class EternalCityManager extends EngineManagerBase {
+  private discordWebhookUrl = process.env.DISCORD_WEBHOOK_ETERNAL;
 
   protected handleData(parsed: any, window: BrowserWindow) {
     // 1. 해당 엔진의 데이터가 아니면 무시
@@ -20,7 +21,11 @@ export class EternalCityManager extends EngineManagerBase {
           content: `🚨 **[이터널시티 레이드 알림]**\n${parsed.content}`,
           username: "EternalCity Bot"
         };
-        sendDiscordMessage(this.discordWebhookUrl, discordPayload).catch(console.error);
+
+        if (this.discordWebhookUrl) {
+          sendDiscordMessage(this.discordWebhookUrl, payload).catch(console.error);
+        }
+
         break;
 
       case 'TIME_SYNC':
