@@ -48,6 +48,7 @@ jobs:
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DISCORD_WEBHOOK_ETERNAL: ${{ secrets.DISCORD_WEBHOOK_ETERNAL }}
 
       # 4. 빌드 결과물 업로드 (Artifacts)
       - name: Upload Artifacts
