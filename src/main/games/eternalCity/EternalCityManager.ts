@@ -2,13 +2,22 @@ import { BrowserWindow } from 'electron';
 import { EngineManagerBase } from '@main/core/EngineManagerBase'
 import { sendDiscordMessage } from '@util/discordHelper'
 import { calculateEntryTime } from '@util/timeHelper'
+import log from 'electron-log'
 
 export class EternalCityManager extends EngineManagerBase {
   private discordWebhookUrl = process.env.DISCORD_WEBHOOK_ETERNAL;
 
+  constructor() {
+    super()
+    log.info(`[EternalCityManager] Webhook URL Loaded: ${this.discordWebhookUrl ? 'starts with' + this.discordWebhookUrl.substring(0, 10) + '...' : 'NO'}`)
+  }
+
+
   protected handleData(parsed: any, window: BrowserWindow) {
     // 1. 해당 엔진의 데이터가 아니면 무시
     if (parsed.game !== 'eternal-city') return;
+
+    log.debug(`[EternalCityManager] parsing data: ${JSON.stringify(parsed)}`);
 
     // 2. sub_type에 따른 정밀한 로직 처리
     switch (parsed.sub_type) {
@@ -25,6 +34,23 @@ export class EternalCityManager extends EngineManagerBase {
         if (this.discordWebhookUrl) {
           sendDiscordMessage(this.discordWebhookUrl, discordPayload).catch(console.error);
         }
+
+        break;
+
+      case 'INVASION_ALERT':
+        const now = new Date();
+        const timestampWithMs = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}.${now.getMilliseconds()}`;
+
+        log.info(`[Invasion Detection] ${parsed.content} | ServerTS: ${parsed.server_time} | Local: ${timestampWithMs}`);
+
+        // UI로 분석용 데이터 전송
+        window.webContents.send('analysis-log', {
+          type: 'INVASION',
+          content: parsed.content,
+          serverTs: parsed.server_time,
+          localTime: timestampWithMs,
+          raw: parsed.raw_hex // 나중에 필요할지 모르니 포함
+        });
 
         break;
 

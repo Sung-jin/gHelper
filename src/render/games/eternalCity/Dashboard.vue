@@ -10,7 +10,8 @@ const emit = defineEmits(['stop'])
 
 const logs = ref<string[]>([])
 const raidLogs = ref<any[]>([])
-const displayCountdown = ref("00:00")
+const displayCountdown = ref('00:00')
+const analysisLogs = ref([])
 const entryData = ref<any>(null)
 let timerWorker: Worker | null = null
 
@@ -43,6 +44,17 @@ const setupListeners = () => {
   api.onLogUpdate((log: string) => {
     logs.value.unshift(log)
     if (logs.value.length > 30) logs.value.pop()
+  })
+  api.onAnalysisLog((log) => {
+    analysisLogs.value.unshift({
+      id: Date.now(),
+      localTime: log.localTime,
+      content: log.content
+    });
+
+    if (analysisLogs.value.length > 5) {
+      analysisLogs.value.pop();
+    }
   })
   api.onRaidDetected((data: any) => raidLogs.value.unshift(data))
   api.onEntryTimer((info: any) => {
@@ -90,6 +102,13 @@ onUnmounted(() => { if (timerWorker) timerWorker.terminate() })
       <div class="card timer">
         <div class="card-title">Timer</div>
         <div class="timer-val">{{ displayCountdown }}</div>
+
+        <div class="analysis-history">
+          <div v-for="log in analysisLogs" :key="log.id" class="history-item">
+            <span class="history-time">[{{ log.localTime }}]</span>
+            <span class="history-content">{{ log.content }}</span>
+          </div>
+        </div>
       </div>
       <div class="card raids">
         <div class="card-title">Raids</div>
@@ -118,6 +137,10 @@ onUnmounted(() => { if (timerWorker) timerWorker.terminate() })
 .logs { grid-column: span 2; height: 120px; }
 .card-title { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 5px; }
 .timer-val { font-size: 24px; text-align: center; color: #f1c40f; font-family: monospace; flex: 1; display: flex; align-items: center; justify-content: center; }
+.analysis-history { margin-top: 10px; border-top: 1px solid #444; padding-top: 5px; }
+.history-item { font-size: 0.75rem; color: #ccc; display: flex; gap: 5px; margin-bottom: 2px; }
+.history-time { color: #00ff00; font-family: monospace; }
+.history-content { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .raid-list, .log-list { font-size: 11px; overflow-y: auto; flex: 1; }
 .raid-item, .log-item { border-bottom: 1px solid #2a2a2a; padding: 2px 0; }
 </style>

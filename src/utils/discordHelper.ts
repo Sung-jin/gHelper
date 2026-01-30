@@ -1,5 +1,6 @@
 import * as https from 'https';
 import { IncomingMessage } from 'http';
+import log from 'electron-log'
 
 export const sendDiscordMessage = (webhookUrl: string, payload: any): Promise<void> => {
   return new Promise((resolve, reject) => {
@@ -20,8 +21,10 @@ export const sendDiscordMessage = (webhookUrl: string, payload: any): Promise<vo
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          log.info(`[Discord Helper] SEND DONE. status: ${res.statusCode} data: ${data} `);
           resolve();
         } else {
+          log.error(`[Discord Helper] SEND ERROR. status ${res.statusCode} data: ${data} `);
           reject(new Error(`Status Code: ${res.statusCode}`));
         }
       });
@@ -29,6 +32,7 @@ export const sendDiscordMessage = (webhookUrl: string, payload: any): Promise<vo
 
     // 3. error 인자에 Error 타입 지정
     req.on('error', (error: Error) => {
+      log.error('[Discord Helper] ERROR: ', error);
       reject(error);
     });
 

@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   onStatusUpdate: (callback: any) => ipcRenderer.on('status-update', (_event, value) => callback(value)),
   onLogUpdate: (callback: any) => ipcRenderer.on('log-update', (_event, value) => callback(value)),
+  onAnalysisLog: (callback: any) => ipcRenderer.on('analysis-log', (_event, value) => callback(value)),
   onRaidDetected: (callback: any) => ipcRenderer.on('raid-detected', (_event, value) => callback(value)),
   onEntryTimer: (callback: any) => ipcRenderer.on('entry-timer', (_event, value) => callback(value)),
 });

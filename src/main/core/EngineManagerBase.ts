@@ -1,5 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { BrowserWindow } from 'electron';
+import log from 'electron-log'
 
 export abstract class EngineManagerBase {
   protected pythonProcess: ChildProcess | null = null;
@@ -27,7 +28,11 @@ export abstract class EngineManagerBase {
       });
     });
 
+    this.pythonProcess.on('error', (error) => {
+      log.error(`[Python process error]`, error)
+    })
     this.pythonProcess.stderr?.on('data', (data) => {
+      log.error(`[Python stderr]`, data);
       this.handleError(data.toString(), window);
     });
   }

@@ -55,11 +55,11 @@
         "from": "engine",
         "to": "engine",
         "filter": [
-          "monitor.py",
-          "utils.py",
-          "!**/*.txt",
+          "core/**/*",
+          "plugins/**/*",
+          "venv/**/*",
           "!**/__pycache__",
-          "!venv"
+          "!**/*.pyc"
         ]
       }
     ],
@@ -84,6 +84,7 @@
     "vue-tsc": "^3.2.2"
   },
   "dependencies": {
+    "electron-log": "^5.4.3",
     "vue": "^3.5.26"
   }
 }

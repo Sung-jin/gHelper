@@ -2,14 +2,13 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-import { EternalCityManager } from './games/eternalCity/EternalCityManager.js';
 import { getManagerById, SUPPORTED_MANAGERS } from '@main/registry/ManagerRegistry'
+import { sendDiscordMessage } from '@util/discordHelper'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow: BrowserWindow | null = null;
-const eternalManager = new EternalCityManager();
 const isWin = process.platform === 'win32';
 
 function createWindow() {
@@ -129,6 +128,5 @@ ipcMain.on('app:close', () => app.quit());
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => {
-  eternalManager.stop();
   if (process.platform !== 'darwin') app.quit();
 });
