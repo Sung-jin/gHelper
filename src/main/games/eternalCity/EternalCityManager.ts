@@ -4,6 +4,15 @@ import { sendDiscordMessage } from '@util/discordHelper'
 import { calculateEntryTime } from '@util/timeHelper'
 import log from 'electron-log'
 
+export interface AnalysisLog {
+  id: number;
+  type: string;
+  content: string;
+  serverTs: number | null;
+  localTime: string;
+  raw: string;
+}
+
 export class EternalCityManager extends EngineManagerBase {
   private discordWebhookUrl = process.env.DISCORD_WEBHOOK_ETERNAL;
 

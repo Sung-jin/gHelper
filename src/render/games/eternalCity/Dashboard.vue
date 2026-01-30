@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
+import type { AnalysisLog } from '@main/games/eternalCity/EternalCityManager'
 
 const props = defineProps<{
   targetProcess: { name: string; pids: number[] } | null,
@@ -11,7 +12,7 @@ const emit = defineEmits(['stop'])
 const logs = ref<string[]>([])
 const raidLogs = ref<any[]>([])
 const displayCountdown = ref('00:00')
-const analysisLogs = ref([])
+const analysisLogs = ref<AnalysisLog[]>([])
 const entryData = ref<any>(null)
 let timerWorker: Worker | null = null
 
@@ -45,14 +46,13 @@ const setupListeners = () => {
     logs.value.unshift(log)
     if (logs.value.length > 30) logs.value.pop()
   })
-  api.onAnalysisLog((log) => {
+  api.onAnalysisLog((log: AnalysisLog) => {
     analysisLogs.value.unshift({
       id: Date.now(),
-      localTime: log.localTime,
-      content: log.content
+      ...log,
     });
 
-    if (analysisLogs.value.length > 5) {
+    if (analysisLogs.value.length > 7) {
       analysisLogs.value.pop();
     }
   })
@@ -104,9 +104,16 @@ onUnmounted(() => { if (timerWorker) timerWorker.terminate() })
         <div class="timer-val">{{ displayCountdown }}</div>
 
         <div class="analysis-history">
+          <div class="history-header">
+            <span>Local (Server TS)</span>
+            <span>Content</span>
+          </div>
           <div v-for="log in analysisLogs" :key="log.id" class="history-item">
-            <span class="history-time">[{{ log.localTime }}]</span>
-            <span class="history-content">{{ log.content }}</span>
+          <span class="history-time">
+            {{ log.localTime }}
+            <small v-if="log.serverTs">({{ log.serverTs }})</small>
+          </span>
+          <span class="history-content" :title="log.raw">{{ log.content }}</span>
           </div>
         </div>
       </div>
@@ -137,10 +144,12 @@ onUnmounted(() => { if (timerWorker) timerWorker.terminate() })
 .logs { grid-column: span 2; height: 120px; }
 .card-title { font-size: 10px; color: #666; text-transform: uppercase; margin-bottom: 5px; }
 .timer-val { font-size: 24px; text-align: center; color: #f1c40f; font-family: monospace; flex: 1; display: flex; align-items: center; justify-content: center; }
-.analysis-history { margin-top: 10px; border-top: 1px solid #444; padding-top: 5px; }
-.history-item { font-size: 0.75rem; color: #ccc; display: flex; gap: 5px; margin-bottom: 2px; }
-.history-time { color: #00ff00; font-family: monospace; }
-.history-content { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.analysis-history { margin-top: 12px; background: rgba(0, 0, 0, 0.2); border-radius: 4px; padding: 8px; }
+.history-header { display: flex; justify-content: space-between; font-size: 0.65rem; color: #888; margin-bottom: 4px; border-bottom: 1px solid #333; }
+.history-item { font-size: 0.75rem; display: flex; flex-direction: column; margin-bottom: 6px; border-bottom: 1px dashed #333; }
+.history-time { color: #4db3ff; font-family: 'Courier New', monospace; font-weight: bold; }
+.history-time small { color: #aaa; font-weight: normal; margin-left: 4px; }
+.history-content { color: #eee; word-break: break-all; }
 .raid-list, .log-list { font-size: 11px; overflow-y: auto; flex: 1; }
 .raid-item, .log-item { border-bottom: 1px solid #2a2a2a; padding: 2px 0; }
 </style>
