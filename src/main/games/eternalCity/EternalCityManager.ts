@@ -15,6 +15,8 @@ export interface AnalysisLog {
 
 export class EternalCityManager extends EngineManagerBase {
   private discordWebhookUrl = process.env.DISCORD_WEBHOOK_ETERNAL;
+  private lastInvasionTime: number = 0;
+  private readonly DEBOUNCE_TIME = 2000;
 
   constructor() {
     super()
@@ -47,8 +49,17 @@ export class EternalCityManager extends EngineManagerBase {
         break;
 
       case 'INVASION_ALERT':
+        const currentTime = Date.now();
         const now = new Date();
+        const ms = String(now.getMilliseconds()).padStart(3, '0');
         const timestampWithMs = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}.${now.getMilliseconds()}`;
+        const localTime = `${now.toLocaleTimeString('ko-KR', { hour12: false })}.${ms}`;
+
+        if ((currentTime - this.lastInvasionTime) < this.DEBOUNCE_TIME) {
+          return;
+        }
+
+        this.lastInvasionTime = currentTime;
 
         log.info(`[Invasion Detection] ${parsed.content} | ServerTS: ${parsed.server_time} | Local: ${timestampWithMs}`);
 
