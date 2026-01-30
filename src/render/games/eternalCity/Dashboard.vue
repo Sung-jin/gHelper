@@ -48,8 +48,8 @@ const setupListeners = () => {
   })
   api.onAnalysisLog((log: AnalysisLog) => {
     analysisLogs.value.unshift({
-      id: Date.now(),
       ...log,
+      id: Date.now(),
     });
 
     if (analysisLogs.value.length > 7) {
