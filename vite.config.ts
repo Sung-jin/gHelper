@@ -5,6 +5,9 @@ import renderer from 'vite-plugin-electron-renderer'
 import path from 'path'
 
 export default defineConfig({
+  define: {
+    'process.env.DISCORD_WEBHOOK_ETERNAL': JSON.stringify(process.env.DISCORD_WEBHOOK_ETERNAL),
+  },
   plugins: [
     vue(),
     electron([
