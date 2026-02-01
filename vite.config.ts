@@ -14,6 +14,9 @@ export default defineConfig({
       {
         entry: 'src/main/main.ts',
         vite: {
+          define: {
+            'process.env.DISCORD_WEBHOOK_ETERNAL': JSON.stringify(process.env.DISCORD_WEBHOOK_ETERNAL),
+          },
           resolve: {
             alias: {
               '@main': path.resolve(__dirname, 'src/main'),

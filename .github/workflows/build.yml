@@ -35,9 +35,8 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m venv engine/venv
-          # 먼저 설치를 진행합니다 (실제 경로 사용)
           ./engine/venv/Scripts/pip install -r engine/requirements.txt
-          echo "home = ." > engine/venv/pyvenv.cfg
+          echo "home = .." > engine/venv/pyvenv.cfg
           echo "include-system-site-packages = false" >> engine/venv/pyvenv.cfg
           echo "version = 3.9.13" >> engine/venv/pyvenv.cfg
         shell: bash

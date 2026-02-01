@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import { getManagerById, SUPPORTED_MANAGERS } from '@main/registry/ManagerRegistry'
 import { sendDiscordMessage } from '@util/discordHelper'
+import log from 'electron-log'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +13,10 @@ let mainWindow: BrowserWindow | null = null;
 const isWin = process.platform === 'win32';
 
 function createWindow() {
+  log.info('--- Env Debug ---');
+  log.info(`Raw Env: ${process.env.DISCORD_WEBHOOK_ETERNAL}`);
+  log.info(`Define Check: ${'process.env.DISCORD_WEBHOOK_ETERNAL'}`);
+
   mainWindow = new BrowserWindow({
     width: 500,
     height: 450,
