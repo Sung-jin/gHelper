@@ -20,7 +20,7 @@ export class EternalCityManager extends EngineManagerBase {
 
   constructor() {
     super()
-    log.info(`[EternalCityManager] Webhook URL Loaded: ${this.discordWebhookUrl ? 'starts with' + this.discordWebhookUrl.substring(0, 10) + '...' : 'NO'}`)
+    log.info(`[EternalCityManager] Webhook URL Loaded: ${this.discordWebhookUrl ? 'starts with ' + this.discordWebhookUrl.substring(0, 10) + '...' : 'NO'}`)
   }
 
 

@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import { getManagerById, SUPPORTED_MANAGERS } from '@main/registry/ManagerRegistry'
 import { sendDiscordMessage } from '@util/discordHelper'
 import log from 'electron-log'
+import * as fs from 'fs'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,10 +14,6 @@ let mainWindow: BrowserWindow | null = null;
 const isWin = process.platform === 'win32';
 
 function createWindow() {
-  log.info('--- Env Debug ---');
-  log.info(`Raw Env: ${process.env.DISCORD_WEBHOOK_ETERNAL}`);
-  log.info(`Define Check: ${'process.env.DISCORD_WEBHOOK_ETERNAL'}`);
-
   mainWindow = new BrowserWindow({
     width: 500,
     height: 450,
@@ -109,6 +106,14 @@ ipcMain.handle('engine:start', async (_event, { pids, managerId }) => {
 
   const { pythonExec, snifferPath, PROJECT_ROOT } = getPaths();
   const pluginPath = path.join(PROJECT_ROOT, config.pluginPath);
+
+  log.info('--- Engine Execution Debug ---');
+  log.info(`PROJECT_ROOT: ${PROJECT_ROOT}`);
+  log.info(`Python Exec Path: ${pythonExec}`);
+  log.info(`Sniffer Path: ${snifferPath}`);
+  log.info(`Current Working Directory: ${process.cwd()}`);
+  log.info(`Python Exists: ${fs.existsSync(pythonExec)}`);
+  log.info(`Sniffer Exists: ${fs.existsSync(snifferPath)}`);
 
   try {
     // 선택된 매니저 인스턴스 실행

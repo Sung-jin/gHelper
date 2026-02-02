@@ -36,8 +36,8 @@ jobs:
         run: |
           python -m venv engine/venv
           ./engine/venv/Scripts/pip install -r engine/requirements.txt
-          echo "home = .." > engine/venv/pyvenv.cfg
-          echo "include-system-site-packages = false" >> engine/venv/pyvenv.cfg
+          rm engine/venv/pyvenv.cfg
+          echo "include-system-site-packages = false" > engine/venv/pyvenv.cfg
           echo "version = 3.9.13" >> engine/venv/pyvenv.cfg
         shell: bash
 
