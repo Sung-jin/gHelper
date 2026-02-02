@@ -5,163 +5,148 @@ import uvicorn
 from scapy.all import sniff, Raw, IP, UDP, TCP
 
 app = FastAPI()
-captured_data = [] # 실시간 모니터링용 (최신 1000개)
-recording_data = [] # 녹화용 (무제한)
+captured_data = [] 
+recording_data = [] 
 is_recording = False
-target_app = None
-port_process_cache = {}
+target_app = "city.exe"
+port_info_cache = {}
 
-def get_process_name_by_port(port):
-    if port == 0: return "System/Kernel"
-    if port in port_process_cache: return port_process_cache[port]
+def get_detailed_port_info(port):
+    if port == 0: return "System", 0
+    if port in port_info_cache: return port_info_cache[port]
     try:
         for conn in psutil.net_connections(kind='inet'):
             if conn.laddr.port == port and conn.pid:
-                name = psutil.Process(conn.pid).name()
-                port_process_cache[port] = name
-                return name
+                proc = psutil.Process(conn.pid)
+                info = (proc.name(), conn.pid)
+                port_info_cache[port] = info
+                return info
     except: pass
-    if platform.system() == "Darwin":
-        try:
-            result = subprocess.check_output(["lsof", "-t", f"-i:{port}"], stderr=subprocess.STDOUT)
-            pids = result.decode().strip().split('\n')
-            if pids:
-                pid = int(pids[0]); name = psutil.Process(pid).name()
-                port_process_cache[port] = name; return name
-        except: pass
-    return "Unknown"
+    return "Unknown", 0
 
-def get_server_time_candidate(payload):
+def try_decode(payload):
+    """바이트 데이터를 한글(EUC-KR)로 변환 시도"""
     try:
-        min_ts, max_ts = 1700000000, 1900000000
-        for i in range(len(payload) - 3):
-            val_be = struct.unpack('>I', payload[i:i+4])[0]
-            if min_ts < val_be < max_ts:
-                return {"pos": i, "ts": val_be, "dt": datetime.datetime.fromtimestamp(val_be).strftime('%Y-%m-%d %H:%M:%S')}
-        return None
-    except: return None
+        # 한글 게임은 주로 EUC-KR을 사용합니다.
+        decoded = payload.decode('euc-kr', errors='ignore')
+        # 출력 가능한 문자들만 필터링 (노이즈 제거)
+        printable = "".join(c for c in decoded if c.isprintable())
+        return printable.strip() if len(printable.strip()) > 1 else ""
+    except:
+        return ""
 
 def packet_callback(packet):
-    global is_recording, target_app
+    global is_recording
     if packet.haslayer(Raw) and packet.haslayer(IP):
+        # 게임 서버 IP 대역 필터링 (119.205.203.xxx)
+        if not (packet[IP].dst.startswith("119.205.203") or packet[IP].src.startswith("119.205.203")):
+            return
+
         payload = packet[Raw].load
         sport = 0; dport = 0
         if packet.haslayer(UDP): sport, dport = packet[UDP].sport, packet[UDP].dport
         elif packet.haslayer(TCP): sport, dport = packet[TCP].sport, packet[TCP].dport
 
-        app_name = get_process_name_by_port(sport)
-        dst_ip = packet[IP].dst
+        # 클라이언트 포트 판별 (보통 1024 이상의 포트가 클라이언트 쪽)
+        client_port = sport if sport > 1024 else dport
+        app_name, pid = get_detailed_port_info(client_port)
+        
+        # 분석 핵심 데이터 추출
+        # 앞 2바이트: 전체 길이, 뒤 2바이트: 타입(OpCode) 가설 적용
+        header = payload[:4].hex() 
+        decoded_text = try_decode(payload)
 
-        # 기본 정보 구성
         entry = {
             "time": datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3],
             "app": app_name,
-            "dest": f"{dst_ip}:{dport}",
-            "data": payload.hex(),
-            "size": len(payload)
+            "pid": pid,
+            "port": client_port,
+            "dest": f"{packet[IP].dst}:{dport}",
+            "header": header,
+            "size": len(payload),
+            "text": decoded_text,
+            "data": payload.hex()
         }
 
-        # 시간 후보군 분석
-        candidate = get_server_time_candidate(payload)
-        if candidate:
-            entry["candidate"] = f"Pos {candidate['pos']}: {candidate['ts']} ({candidate['dt']})"
-
-        # 1. 실시간 모니터링 리스트 추가
-        if candidate: # 모니터링은 시간 후보가 있는 것 위주로
-            captured_data.insert(0, entry)
-            if len(captured_data) > 1000: captured_data.pop()
-
-        # 2. 녹화 로직
         if is_recording:
-            if target_app == "All Apps" or app_name == target_app:
-                recording_data.append(entry)
+            recording_data.append(entry)
+        
+        captured_data.insert(0, entry)
+        if len(captured_data) > 200: captured_data.pop()
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return """
     <html>
         <head>
+            <title>Game Packet Recon Engine</title>
             <style>
-                body { font-family: 'Malgun Gothic', sans-serif; padding: 20px; background: #f0f2f5; }
-                .controls { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-                button { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; }
-                .btn-start { background: #4caf50; color: white; }
-                .btn-stop { background: #f44336; color: white; }
-                select, input { padding: 10px; border-radius: 6px; border: 1px solid #ddd; }
-                .log-item { background: white; margin-bottom: 10px; padding: 15px; border-radius: 10px; border-left: 6px solid #2196f3; }
-                .tag-app { background: #e91e63; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-                .recording-status { color: red; font-weight: bold; animation: blink 1s infinite; }
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; background: #1a1a1a; color: #eee; }
+                .controls { background: #2d2d2d; padding: 20px; border-radius: 12px; margin-bottom: 20px; position: sticky; top: 0; z-index: 100; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: flex; gap: 15px; align-items: center; }
+                button { padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; }
+                .btn-start { background: #2e7d32; color: white; }
+                .btn-stop { background: #c62828; color: white; }
+                button:hover { opacity: 0.8; }
+                .log-item { background: #262626; margin-bottom: 8px; padding: 12px; border-radius: 8px; border-left: 5px solid #444; display: grid; grid-template-columns: 100px 80px 80px 150px 100px 60px 1fr; gap: 10px; align-items: center; }
+                .log-item:hover { background: #333; }
+                .tag { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; text-align: center; }
+                .tag-pid { background: #6a1b9a; color: white; }
+                .tag-header { background: #0277bd; color: white; font-family: monospace; font-size: 14px; }
+                .text-content { color: #ffeb3b; font-weight: bold; border-left: 2px solid #555; padding-left: 10px; }
+                .hex-data { font-family: monospace; color: #777; font-size: 11px; grid-column: 1 / -1; margin-top: 5px; word-break: break-all; }
+                .recording-status { color: #f44336; font-weight: bold; animation: blink 1s infinite; }
                 @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0; } 100% { opacity: 1; } }
             </style>
         </head>
         <body>
             <div class="controls">
-                <strong>대상 앱:</strong>
-                <select id="appSelect"></select>
+                <h2 style="margin:0; color:#4caf50;">Recon Engine</h2>
                 <button class="btn-start" onclick="startRec()">녹화 시작</button>
-                <button class="btn-stop" onclick="stopRec()">녹화 종료 및 다운로드</button>
-                <span id="recStatus" style="display:none;" class="recording-status">● 녹화 중...</span>
-                <input type="text" id="searchInput" placeholder="HEX 데이터 검색..." oninput="render()">
+                <button class="btn-stop" onclick="stopRec()">녹화 종료 및 저장</button>
+                <span id="recStatus" style="display:none;" class="recording-status">● RECORDING</span>
+                <input type="text" id="searchInput" placeholder="Header 또는 텍스트 검색..." oninput="render()" style="background:#444; color:white; border:1px solid #555; padding:8px; border-radius:4px; width:250px;">
                 <span id="stat"></span>
+            </div>
+            <div id="logHeader" class="log-item" style="background:#444; font-weight:bold; position:sticky; top:85px;">
+                <span>Time</span><span>PID</span><span>Port</span><span>Destination</span><span>Header</span><span>Size</span><span>Decoded Text</span>
             </div>
             <div id="logs"></div>
             <script>
                 let rawLogs = [];
-                let knownApps = new Set();
-
                 async function update() {
                     const r = await fetch('/logs');
                     rawLogs = await r.json();
-                    updateSelectBox();
                     render();
                 }
-
-                function updateSelectBox() {
-                    const select = document.getElementById('appSelect');
-                    const currentApps = [...new Set(rawLogs.map(l => l.app))].sort();
-                    
-                    // 기존에 없던 앱이 추가되었을 때만 셀렉트박스 갱신 (깜빡임 방지)
-                    let isChanged = false;
-                    currentApps.forEach(a => { if(!knownApps.has(a)) { knownApps.add(a); isChanged = true; } });
-                    
-                    if (isChanged || select.options.length === 0) {
-                        const currentVal = select.value;
-                        select.innerHTML = '<option value="All Apps">모든 앱 녹화</option>' + 
-                            [...knownApps].map(a => `<option value="${a}" ${a===currentVal?'selected':''}>${a}</option>`).join('');
-                    }
-                }
-
                 function render() {
                     const keyword = document.getElementById('searchInput').value.toLowerCase();
-                    // 앱 이름, 목적지, HEX 데이터 중 하나라도 포함되면 표시
                     const filtered = rawLogs.filter(l => 
-                        l.app.toLowerCase().includes(keyword) || 
-                        l.dest.toLowerCase().includes(keyword) ||
-                        l.data.toLowerCase().includes(keyword)
+                        l.header.toLowerCase().includes(keyword) || 
+                        l.text.toLowerCase().includes(keyword) ||
+                        l.pid.toString().includes(keyword)
                     );
-                    document.getElementById('stat').innerText = `(${filtered.length}개 검색됨)`;
-                    document.getElementById('logs').innerHTML = filtered.slice(0, 50).map(l => `
-                        <div class="log-item">
-                            <span style="color:#888">[${l.time}]</span>
-                            <span class="tag-app">${l.app}</span>
-                            <span style="font-weight:bold; color:#2196f3;">To: ${l.dest}</span>
-                            <div style="margin-top:10px; font-size:16px;">${l.candidate || 'No Timestamp'}</div>
-                            <div style="font-family:monospace; font-size:12px; color:#999; word-break:break-all;">HEX: ${l.data.substring(0, 100)}...</div>
+                    document.getElementById('stat').innerText = `(${filtered.length} packets)`;
+                    document.getElementById('logs').innerHTML = filtered.map(l => `
+                        <div class="log-item" style="border-left-color: ${l.text ? '#ffeb3b' : '#444'}">
+                            <span>${l.time}</span>
+                            <span class="tag tag-pid">PID: ${l.pid}</span>
+                            <span style="color:#aaa">${l.port}</span>
+                            <span style="font-size:12px; color:#888">${l.dest}</span>
+                            <span class="tag tag-header">${l.header}</span>
+                            <span>${l.size}B</span>
+                            <span class="text-content">${l.text}</span>
+                            <div class="hex-data">RAW: ${l.data}</div>
                         </div>
                     `).join('');
                 }
-
                 async function startRec() {
-                    const app = document.getElementById('appSelect').value;
-                    await fetch(`/record/start?app=${encodeURIComponent(app)}`);
+                    await fetch('/record/start');
                     document.getElementById('recStatus').style.display = 'inline';
                 }
-
                 async function stopRec() {
                     document.getElementById('recStatus').style.display = 'none';
                     window.location.href = '/record/stop';
                 }
-
                 setInterval(update, 1000);
             </script>
         </body>
@@ -172,26 +157,21 @@ async def index():
 def get_logs(): return captured_data
 
 @app.get("/record/start")
-def start_recording(app: str):
-    global is_recording, target_app, recording_data
-    recording_data = [] # 이전 기록 초기화
-    target_app = app
+def start_recording():
+    global is_recording, recording_data
+    recording_data = [] 
     is_recording = True
-    return {"status": "started", "target": app}
+    return {"status": "started"}
 
 @app.get("/record/stop")
 def stop_recording():
     global is_recording, recording_data
     is_recording = False
-    # 제가 분석하기 좋은 JSON 형태로 반환
     content = json.dumps(recording_data, indent=2)
-    filename = f"capture_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    return Response(
-        content=content,
-        media_type="application/json",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+    filename = f"recon_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    return Response(content=content, media_type="application/json", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 if __name__ == "__main__":
+    # 포트 8000(FastAPI) 제외하고 스니핑
     threading.Thread(target=lambda: sniff(prn=packet_callback, store=0, filter="not port 8000"), daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=8000)
