@@ -41,27 +41,20 @@ jobs:
           
           # 2. pip 설치
           curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-          ./engine/venv/Scripts/python.exe get-pip.py
+          ./engine/venv/Scripts/python.exe get-pip.py --target ./engine/venv/Scripts
           
           # 3. ._pth 파일 수정
-          # 'import site'가 반드시 포함되어야 Lib/site-packages를 인식합니다.
           echo -e ".\npython39.zip\nLib/site-packages\nimport site" > engine/venv/Scripts/python39._pth
           
-          # 4. 의존성 강제 주입 설치
-          # --target 경로를 변수로 잡고, pip에게 이곳이 유일한 성지임을 알립니다.
+          # 4. 의존성 통합 설치
           TARGET_PATH=$(pwd)/engine/venv/Scripts/Lib/site-packages
           mkdir -p "$TARGET_PATH"
           
-          # PYTHONPATH를 설정하여 pip이 target 폴더를 최우선으로 보게 함
-          export PYTHONPATH="$TARGET_PATH"
-          ./engine/venv/Scripts/python.exe -m pip install \
-            --target "$TARGET_PATH" \
-            --no-cache-dir \
-            --upgrade \
-            -r engine/requirements.txt
+          echo "Starting Batch Installation (excluding tests)..."
+          find engine -name "requirements.txt" -not -path "*/tests/*" -exec ./engine/venv/Scripts/python.exe -m pip install --target "$TARGET_PATH" --no-cache-dir -r {} \;
           
           # 5. 최종 확인
-          echo "Listing target directory contents:"
+          echo "Final Check - Contents of site-packages:"
           ls -F "$TARGET_PATH"
         shell: bash
 
