@@ -10,14 +10,15 @@ recording_data = []
 is_recording = False
 port_info_cache = {}
 
-# --- 필터 설정 영역 ---
+# --- [전처리 필터 설정] ---
+# 1. OpCode 및 MsgID 블랙리스트 (핑, 좌표 등 반복 노이즈)
 blacklist_opcodes = set(["0300", "0700", "0000"]) 
 blacklist_msgids = set(["86020000"]) 
 
-# 차단할 텍스트 패턴 (정규표현식)
-# 1. (숫자위) [닉네임] 형태 -> 예: (23위) [EZKK]
-# 2. (999+) [닉네임] 형태 -> 예: (999+) [이쥐]
+# 2. 외침/채팅 패턴 블랙리스트 (정규표현식)
 CHAT_FILTER_PATTERN = re.compile(r"\(\d+\+?\) \[.+\]|\(\d+위\) \[.+\]")
+
+tag_map = {"1c00": "채팅/외침", "0500": "시스템알림"}
 
 def get_detailed_port_info(port):
     if port == 0: return "System", 0
@@ -34,7 +35,6 @@ def get_detailed_port_info(port):
 
 def try_decode(payload):
     try:
-        # EUC-KR로 디코딩하여 실제 읽을 수 있는 한글 텍스트 추출
         decoded = payload.decode('euc-kr', errors='ignore')
         printable = "".join(c for c in decoded if c.isprintable())
         return printable.strip()
@@ -49,19 +49,16 @@ def packet_callback(packet):
         payload = packet[Raw].load
         if len(payload) < 4: return
         
-        # 1. 텍스트 먼저 추출 (필터링을 위해)
+        # [단계 1] 채팅/외침 패턴 필터링 (정규식)
         decoded_text = try_decode(payload)
-
-        # 2. [전처리 필터] 정규식을 이용한 외침 차단
-        # (숫위) [닉네임] 이나 (999+) [닉네임]이 포함되어 있으면 즉시 종료
         if CHAT_FILTER_PATTERN.search(decoded_text):
             return
 
-        # 3. 기본 OpCode 및 MsgID 추출
+        # [단계 2] OpCode 및 MsgID 추출
         opcode = payload[2:4].hex()
         msg_id = payload[4:8].hex() if opcode == "0500" and len(payload) >= 8 else ""
 
-        # 4. 블랙리스트 OpCode/MsgID 체크
+        # [단계 3] 블랙리스트 필터링 (노이즈 제거)
         if opcode in blacklist_opcodes or (msg_id and msg_id in blacklist_msgids):
             return
 
@@ -91,33 +88,36 @@ async def index():
     return """
     <html>
         <head>
-            <title>Game Recon v6 - Smart Text Filter</title>
+            <title>Game Recon v7 - Ultimate Filter</title>
             <style>
                 body { font-family: 'Malgun Gothic', sans-serif; margin: 0; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; height: 100vh; }
                 .header { background: #1e293b; padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #334155; }
                 .container { display: flex; flex: 1; overflow: hidden; }
-                .sidebar { width: 300px; background: #1e293b; border-right: 2px solid #334155; padding: 15px; }
+                .sidebar { width: 320px; background: #1e293b; border-right: 2px solid #334155; padding: 15px; overflow-y: auto; }
                 .main { flex: 1; padding: 20px; overflow-y: auto; }
-                .log-item { background: #1e293b; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: grid; grid-template-columns: 100px 80px 80px 100px 1fr; gap: 10px; font-size: 12px; border-left: 4px solid #475569; }
+                .log-item { background: #1e293b; padding: 10px; border-radius: 8px; margin-bottom: 8px; display: grid; grid-template-columns: 100px 80px 80px 100px 1fr 60px; gap: 10px; font-size: 12px; border-left: 4px solid #475569; }
                 .badge { background: #475569; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
                 .text-yellow { color: #facc15; font-weight: bold; }
-                .filter-info { font-size: 12px; color: #94a3b8; background: #334155; padding: 10px; border-radius: 6px; }
+                .btn { cursor: pointer; border: none; padding: 5px 10px; border-radius: 4px; font-weight: bold; }
+                .btn-danger { background: #ef4444; color: white; }
+                .card { background: #334155; padding: 10px; border-radius: 6px; margin-bottom: 10px; font-size: 12px; }
             </style>
         </head>
         <body>
             <div class="header">
-                <strong>RECON ENGINE v6 (Smart Regex Filter)</strong>
-                <button style="cursor:pointer; padding:5px 15px;" onclick="fetch('/clear')">로그 초기화</button>
+                <strong>RECON ENGINE v7 (Noise + Chat Filter)</strong>
+                <div>
+                    <button class="btn" onclick="fetch('/clear')">로그 비우기</button>
+                </div>
             </div>
             <div class="container">
                 <div class="sidebar">
-                    <h4>자동 필터 활성화</h4>
-                    <div class="filter-info">
-                        현재 다음 패턴을 자동으로 차단 중입니다:<br><br>
-                        1. <b>(숫자위) [닉네임]</b><br>
-                        2. <b>(999+) [닉네임]</b><br><br>
-                        이제 텍스트가 깨끗하게 보입니다.
-                    </div>
+                    <h4>전처리 필터 통계</h4>
+                    <p style="font-size:11px; color:#94a3b8">실시간 수집 중인 패킷들 (클릭 시 차단):</p>
+                    <div id="statsList"></div>
+                    <hr style="border:0.5px solid #334155;">
+                    <h4>현재 차단된 ID</h4>
+                    <div id="blacklistItems" style="font-size:11px; color:#ef4444;"></div>
                 </div>
                 <div class="main" id="logs"></div>
             </div>
@@ -125,16 +125,31 @@ async def index():
                 async function update() {
                     const r = await fetch('/data');
                     const d = await r.json();
-                    document.getElementById('logs').innerHTML = d.map(l => `
+                    
+                    document.getElementById('statsList').innerHTML = d.summary.map(s => `
+                        <div class="card">
+                            <div style="display:flex; justify-content:space-between">
+                                <b>${s.name || s.id}</b> <span>${s.count}건</span>
+                            </div>
+                            <button class="btn btn-danger" style="font-size:10px; margin-top:5px; width:100%" onclick="addFilter('${s.id}')">이 ID 차단하기</button>
+                        </div>
+                    `).join('');
+
+                    document.getElementById('blacklistItems').innerHTML = d.blacklist.join(', ');
+
+                    document.getElementById('logs').innerHTML = d.logs.map(l => `
                         <div class="log-item" style="border-left-color: ${l.text ? '#facc15' : '#475569'}">
                             <span>${l.time}</span>
                             <span class="badge">PID:${l.pid}</span>
                             <span class="badge">${l.opcode}</span>
                             <span class="badge" style="background:#7c3aed">${l.msg_id || '-'}</span>
-                            <span class="${l.text ? 'text-yellow' : ''}">${l.text || l.data.substring(0,60)+'...'}</span>
+                            <span class="${l.text ? 'text-yellow' : ''}">${l.text || l.data.substring(0,50)+'...'}</span>
+                            <button class="btn" onclick="navigator.clipboard.writeText('${l.data}')">HEX</button>
                         </div>
                     `).join('');
                 }
+
+                async function addFilter(id) { await fetch(`/filter/add?id=${id}`); }
                 setInterval(update, 1000);
             </script>
         </body>
@@ -142,17 +157,30 @@ async def index():
     """
 
 @app.get("/data")
-def get_data(): return captured_data
+def get_data():
+    summary = {}
+    for l in captured_data:
+        key = l['msg_id'] if l['msg_id'] else l['opcode']
+        if key not in summary:
+            summary[key] = {"id": key, "count": 0, "name": tag_map.get(key, "")}
+        summary[key]["count"] += 1
+    
+    return {
+        "logs": captured_data,
+        "summary": sorted(list(summary.values()), key=lambda x: x['count'], reverse=True),
+        "blacklist": list(blacklist_opcodes | blacklist_msgids)
+    }
+
+@app.get("/filter/add")
+def add_filter(id: str):
+    if len(id) == 4: blacklist_opcodes.add(id)
+    else: blacklist_msgids.add(id)
+    return {"ok": True}
 
 @app.get("/clear")
 def clear_logs():
     captured_data.clear()
     return {"ok": True}
-
-@app.get("/record/stop")
-def stop_recording():
-    content = json.dumps(recording_data, indent=2)
-    return Response(content=content, media_type="application/json", headers={"Content-Disposition": "attachment; filename=recon_v6.json"})
 
 if __name__ == "__main__":
     threading.Thread(target=lambda: sniff(prn=packet_callback, store=0, filter="not port 8000"), daemon=True).start()
