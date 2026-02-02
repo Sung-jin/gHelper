@@ -34,23 +34,26 @@ jobs:
       # 1. 가상환경 구축, 설정 수정 및 의존성 설치
       - name: Setup Python Engine
         run: |
-          # 1. 파이썬 임베디드 패키지 다운로드
+          # 1. 파이썬 임베디드 패키지 다운로드 및 압축 해제
           curl -L https://www.python.org/ftp/python/3.9.13/python-3.9.13-embed-amd64.zip -o python_embed.zip
           mkdir -p engine/venv/Scripts
           unzip python_embed.zip -d engine/venv/Scripts
           
-          # 2. pip 설치
+          # 2. pip 설치용 get-pip.py 다운로드 및 실행
           curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
           ./engine/venv/Scripts/python.exe get-pip.py
           
-          # 3. ._pth 파일 수정
-          # 임베디드 파이썬이 자신의 위치에서 Lib/site-packages 를 찾도록 설정
-          echo "." > engine/venv/Scripts/python39._pth
-          echo "python39.zip" >> engine/venv/Scripts/python39._pth
-          echo "Lib/site-packages" >> engine/venv/Scripts/python39._pth
-          echo "import site" >> engine/venv/Scripts/python39._pth
+          # 3. ._pth 파일 수정 (현재 폴더와 site-packages를 인식하도록 설정)
+          # 이 작업이 선행되어야 파이썬이 Lib/site-packages를 검색 경로에 포함
+          cat <<EOF > engine/venv/Scripts/python39._pth
+          .
+          python39.zip
+          Lib/site-packages
+          import site
+          EOF
           
           # 4. 의존성 설치
+          mkdir -p engine/venv/Scripts/Lib/site-packages
           ./engine/venv/Scripts/python.exe -m pip install -r engine/requirements.txt --target engine/venv/Scripts/Lib/site-packages
         shell: bash
 
