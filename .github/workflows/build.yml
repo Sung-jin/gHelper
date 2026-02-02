@@ -32,13 +32,15 @@ jobs:
           cache-dependency-path: 'engine/requirements.txt'
 
       # 1. 가상환경 구축, 설정 수정 및 의존성 설치
-      - name: Install Python Dependencies
+      - name: Setup Python Engine
         run: |
-          python -m venv engine/venv
-          ./engine/venv/Scripts/pip install -r engine/requirements.txt
-          rm engine/venv/pyvenv.cfg
-          echo "include-system-site-packages = false" > engine/venv/pyvenv.cfg
-          echo "version = 3.9.13" >> engine/venv/pyvenv.cfg
+          curl -L https://www.python.org/ftp/python/3.9.13/python-3.9.13-embed-amd64.zip -o python_embed.zip
+          mkdir -p engine/venv/Scripts
+          unzip python_embed.zip -d engine/venv/Scripts
+          curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+          ./engine/venv/Scripts/python.exe get-pip.py
+          echo "import site" >> engine/venv/Scripts/python39._pth
+          ./engine/venv/Scripts/python.exe -m pip install -r engine/requirements.txt
         shell: bash
 
       # 2. Node.js 의존성 설치
