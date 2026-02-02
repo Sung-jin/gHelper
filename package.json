@@ -11,15 +11,17 @@
     "preview": "vite preview",
 
     "pip:install": "pip install -r engine/requirements.txt",
-    "pip:install-all": "npm run pip:install && npm run pip:install-core && npm run pip:install-plugins && npm run pip:install-tests",
+    "pip:install-all": "npm run pip:install && npm run pip:install-core && npm run pip:install-plugins && npm run pip:install-tests && npm run pip:install-tools",
     "pip:install-core": "pip install -r engine/core/requirements.txt",
     "pip:install-plugins": "pip install -r engine/plugins/requirements.txt",
     "pip:install-tests": "pip install -r engine/tests/requirements.txt",
+    "pip:install-tools": "pip install -r engine/tools/requirements.txt",
 
     "pip:update-req": "pipreqs ./engine --ignore engine/core,engine/plugins,engine/tests,engine/tools --force",
     "pip:update-core-req": "pipreqs ./engine/core --force",
     "pip:update-plugins-req": "pipreqs ./engine/plugins --force",
     "pip:update-tests-req": "pipreqs ./engine/tests --force",
+    "pip:update-tools-req": "pipreqs ./engine/tools --force",
     "pip:update-all": "npm run pip:update-req && npm run pip:update-core-req && npm run pip:update-plugins-req && npm run pip:update-tests-req"
   },
   "build": {

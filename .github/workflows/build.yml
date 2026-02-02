@@ -34,27 +34,36 @@ jobs:
       # 1. 가상환경 구축, 설정 수정 및 의존성 설치
       - name: Setup Python Engine
         run: |
-          # 1. 파이썬 임베디드 패키지 다운로드 및 압축 해제
+          # 1. 파이썬 및 pip 기본 세팅
           curl -L https://www.python.org/ftp/python/3.9.13/python-3.9.13-embed-amd64.zip -o python_embed.zip
           mkdir -p engine/venv/Scripts
           unzip python_embed.zip -d engine/venv/Scripts
-          
-          # 2. pip 설치
           curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
           ./engine/venv/Scripts/python.exe get-pip.py --target ./engine/venv/Scripts
           
-          # 3. ._pth 파일 수정
+          # 2. ._pth 설정
           echo -e ".\npython39.zip\nLib/site-packages\nimport site" > engine/venv/Scripts/python39._pth
           
-          # 4. 의존성 통합 설치
+          # 3. 의존성 설치 (버전 제거 후 설치)
           TARGET_PATH=$(pwd)/engine/venv/Scripts/Lib/site-packages
           mkdir -p "$TARGET_PATH"
           
-          echo "Starting Batch Installation (excluding tests)..."
-          find engine -name "requirements.txt" -not -path "*/tests/*" -exec ./engine/venv/Scripts/python.exe -m pip install --target "$TARGET_PATH" --no-cache-dir -r {} \;
+          echo "Processing requirements.txt files..."
+          # tests 폴더를 제외한 모든 requirements.txt를 찾아서 처리
+          find engine -name "requirements.txt" -not -path "*/tests/*" | while read req; do
+            echo "Installing from $req (Cleaning versions...)"
+            # 'package==1.2.3'을 'package'로 임시 변환하여 pip에게 전달
+            # 로컬 원본 파일은 건드리지 않고 파이프로 전달하는 방식이 더 안전합니다.
+            sed 's/==.*//g' "$req" > temp_req.txt
           
-          # 5. 최종 확인
-          echo "Final Check - Contents of site-packages:"
+            ./engine/venv/Scripts/python.exe -m pip install \
+              --target "$TARGET_PATH" \
+              --no-cache-dir \
+              -r temp_req.txt
+          done
+          
+          # 4. 최종 결과 확인
+          echo "Successfully installed modules:"
           ls -F "$TARGET_PATH"
         shell: bash
 
