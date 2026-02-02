@@ -34,13 +34,24 @@ jobs:
       # 1. 가상환경 구축, 설정 수정 및 의존성 설치
       - name: Setup Python Engine
         run: |
+          # 1. 파이썬 임베디드 패키지 다운로드
           curl -L https://www.python.org/ftp/python/3.9.13/python-3.9.13-embed-amd64.zip -o python_embed.zip
           mkdir -p engine/venv/Scripts
           unzip python_embed.zip -d engine/venv/Scripts
+          
+          # 2. pip 설치
           curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
           ./engine/venv/Scripts/python.exe get-pip.py
+          
+          # 3. ._pth 파일 수정
+          # 임베디드 파이썬이 자신의 위치에서 Lib/site-packages 를 찾도록 설정
+          echo "." > engine/venv/Scripts/python39._pth
+          echo "python39.zip" >> engine/venv/Scripts/python39._pth
+          echo "Lib/site-packages" >> engine/venv/Scripts/python39._pth
           echo "import site" >> engine/venv/Scripts/python39._pth
-          ./engine/venv/Scripts/python.exe -m pip install -r engine/requirements.txt
+          
+          # 4. 의존성 설치
+          ./engine/venv/Scripts/python.exe -m pip install -r engine/requirements.txt --target engine/venv/Scripts/Lib/site-packages
         shell: bash
 
       # 2. Node.js 의존성 설치
