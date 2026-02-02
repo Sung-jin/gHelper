@@ -34,28 +34,35 @@ jobs:
       # 1. 가상환경 구축, 설정 수정 및 의존성 설치
       - name: Setup Python Engine
         run: |
-          # 1. 파이썬 임베디드 패키지 다운로드
+          # 1. 파이썬 임베디드 패키지 다운로드 및 압축 해제
           curl -L https://www.python.org/ftp/python/3.9.13/python-3.9.13-embed-amd64.zip -o python_embed.zip
           mkdir -p engine/venv/Scripts
           unzip python_embed.zip -d engine/venv/Scripts
           
-          # 2. pip 설치 (설치 위치를 현재 폴더로 강제 고정)
+          # 2. pip 설치
           curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-          ./engine/venv/Scripts/python.exe get-pip.py --target ./engine/venv/Scripts
+          ./engine/venv/Scripts/python.exe get-pip.py
           
           # 3. ._pth 파일 수정
-          # 인코딩 및 줄바꿈 문제를 방지하기 위해 각 항목을 명확히 입력
-          echo "." > engine/venv/Scripts/python39._pth
-          echo "python39.zip" >> engine/venv/Scripts/python39._pth
-          echo "Lib/site-packages" >> engine/venv/Scripts/python39._pth
-          echo "import site" >> engine/venv/Scripts/python39._pth
+          # 'import site'가 반드시 포함되어야 Lib/site-packages를 인식합니다.
+          echo -e ".\npython39.zip\nLib/site-packages\nimport site" > engine/venv/Scripts/python39._pth
           
-          # 4. 의존성 설치 (절대 경로 변수 활용)
-          mkdir -p engine/venv/Scripts/Lib/site-packages
-          ./engine/venv/Scripts/python.exe -m pip install -r engine/requirements.txt --target ./engine/venv/Scripts/Lib/site-packages --no-cache-dir
+          # 4. 의존성 강제 주입 설치
+          # --target 경로를 변수로 잡고, pip에게 이곳이 유일한 성지임을 알립니다.
+          TARGET_PATH=$(pwd)/engine/venv/Scripts/Lib/site-packages
+          mkdir -p "$TARGET_PATH"
           
-          # 5. 확인 로그
-          ls -R engine/venv/Scripts/Lib/site-packages
+          # PYTHONPATH를 설정하여 pip이 target 폴더를 최우선으로 보게 함
+          export PYTHONPATH="$TARGET_PATH"
+          ./engine/venv/Scripts/python.exe -m pip install \
+            --target "$TARGET_PATH" \
+            --no-cache-dir \
+            --upgrade \
+            -r engine/requirements.txt
+          
+          # 5. 최종 확인
+          echo "Listing target directory contents:"
+          ls -F "$TARGET_PATH"
         shell: bash
 
       # 2. Node.js 의존성 설치
