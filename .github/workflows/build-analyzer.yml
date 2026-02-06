@@ -1,13 +1,15 @@
-name: Build Analyzer EXE
+name: Build PacketAnalyzer EXE
 
 on:
-  workflow_dispatch: # 수동으로 빌드 실행 가능하도록 설정
+  workflow_dispatch: # 수동으로 빌드 실행
 
 jobs:
   build:
     runs-on: windows-latest
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -17,13 +19,36 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -r engine/tools/requirements.txt
-          pip install -r engine/requirements.txt
+          pip install pyinstaller requests scapy
+          # 만약 별도의 requirements 파일이 있다면 아래 주석을 해제하세요.
+          # pip install -r engine/tools/requirements.txt
+          # pip install -r engine/requirements.txt
+
+      - name: Inject Secrets and Prepare Files
+        shell: pwsh
+        run: |
+          $codeFile = "engine/tools/analyzer.py"
+          
+          # 1. 파이썬 코드 내의 Placeholder를 GitHub Secret 값으로 치환
+          # GitHub Settings -> Secrets and variables -> Actions에 등록된 값을 가져옵니다.
+          $webhook = "${{ secrets.DISCORD_WEBHOOK_ETERNAL }}"
+          (Get-Content $codeFile) -replace 'YOUR_DISCORD_WEBHOOK_URL', $webhook | Set-Content $codeFile
+          
+          # 2. mapping.json 파일이 없으면 기본 빈 파일 생성 (빌드 에러 방지)
+          if (!(Test-Path "engine/tools/mapping.json")) {
+              '{"83a0": {"type": "습격 5분 전", "locations": {}}, "8380": {"type": "습격 1분 전", "locations": {}}, "f180": {"type": "습격 입장 가능", "locations": {}}}' | Out-File -FilePath "engine/tools/mapping.json" -Encoding utf8
+          }
 
       - name: Build EXE with PyInstaller
+        shell: pwsh
         run: |
-          pyinstaller --onefile --uac-admin --name "PacketAnalyzer" engine/tools/analyzer.py
+          # --add-data "소스경로;대상경로" (Windows는 세미콜론 사용)
+          # --uac-admin: 실행 시 관리자 권한 요청 (패킷 스니핑에 필수)
+          pyinstaller --onefile `
+                      --uac-admin `
+                      --name "PacketAnalyzer" `
+                      --add-data "engine/tools/mapping.json;." `
+                      engine/tools/analyzer.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
