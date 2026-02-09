@@ -4,7 +4,7 @@ import os
 import threading
 import time
 import requests
-import sys  # 추가: sys 모듈 누락 수정
+import sys
 from scapy.all import sniff, Raw, IP
 
 # --- [설정 영역] ---
@@ -13,7 +13,7 @@ START_HOUR = 19
 END_HOUR = 2
 SAVE_INTERVAL_MIN = 10
 DISCORD_WEBHOOK_URL = "YOUR_DISCORD_WEBHOOK_URL"
-DUPE_WINDOW = 5  # 중복 방지 (5초)
+DUPE_WINDOW = 5
 
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
@@ -24,44 +24,49 @@ raid_mapping = {}
 current_log_data = []
 current_file_label = ""
 
+def send_startup_notification():
+    """앱 시작 시 URL 유효성 확인용 알림"""
+    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    msg = f"🚀 **패킷 분석기 모니터링 시작!**\n- 시작 시간: {now_str}\n- 대상 대역: 119.205.203.x"
+
+    if "YOUR_DISCORD_WEBHOOK_URL" in DISCORD_WEBHOOK_URL:
+        print("\n[Warning] Webhook URL이 치환되지 않았습니다. 빌드 설정을 확인하세요.")
+    else:
+        send_discord(msg)
+        print("\n[*] 시작 알림을 디스코드로 전송했습니다.")
+
 def get_mapping_path(filename="mapping.json"):
     """경로 우선순위: 1. EXE 외부, 2. EXE 내부(_MEIPASS), 3. 현재 디렉토리"""
     if getattr(sys, 'frozen', False):
-        ext_dir = os.path.dirname(sys.executable)
-        ext_path = os.path.join(ext_dir, filename)
-        if os.path.isfile(ext_path):
-            return ext_path
-
+        ext_path = os.path.join(os.path.dirname(sys.executable), filename)
+        if os.path.isfile(ext_path): return ext_path
     if hasattr(sys, '_MEIPASS'):
         int_path = os.path.join(sys._MEIPASS, filename)
-        if os.path.isfile(int_path):
-            return int_path
-
+        if os.path.isfile(int_path): return int_path
     return os.path.join(os.getcwd(), filename)
 
 MAPPING_FILE = get_mapping_path("mapping.json")
 
 def load_mapping():
-    """매핑 데이터 로드"""
     global raid_mapping
-    target_path = MAPPING_FILE if os.path.isfile(MAPPING_FILE) else get_mapping_path("mapping.json")
     try:
-        if os.path.exists(target_path):
-            with open(target_path, "r", encoding="utf-8") as f:
+        if os.path.exists(MAPPING_FILE):
+            with open(MAPPING_FILE, "r", encoding="utf-8") as f:
                 raid_mapping = json.load(f)
         return raid_mapping
     except Exception as e:
-        print(f"\n[Error] 매핑 파일 읽기 오류: {e}")
         return {}
 
 def send_discord(content):
-    if DISCORD_WEBHOOK_URL == "YOUR_DISCORD_WEBHOOK_URL":
-        return
+    if "YOUR_DISCORD_WEBHOOK_URL" in DISCORD_WEBHOOK_URL: return
     try:
-        payload = {"content": f"📢 **[습격 알림]** {content}"}
-        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+        payload = {"content": content}
+        # 전송 결과 확인을 위해 response 로그 추가
+        resp = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+        if resp.status_code != 204:
+            print(f"\n[Error] Discord 전송 실패 (Status: {resp.status_code})")
     except Exception as e:
-        print(f"\n[Error] 디스코드 발송 실패: {e}")
+        print(f"\n[Error] 디스코드 발송 예외 발생: {e}")
 
 def is_recording_time():
     now = datetime.datetime.now()
@@ -78,22 +83,26 @@ def check_raid_notification(payload_hex):
         opcode_type = payload_hex[idx+8:idx+12]
         location_id = payload_hex[idx+12:idx+18]
         full_key = f"{opcode_type}{location_id}"
-        
-        # 중복 확인 (full_id -> full_key 변수명 수정)
-        now = time.time()
-        if full_key in last_sent_raids and now - last_sent_raids[full_key] < DUPE_WINDOW:
-            return
 
-        load_mapping() # 실시간 업데이트 반영
-        
-        timing_info = raid_mapping.get(opcode_type, {"type": "미식별 타이밍", "locations": {}})
-        location_name = timing_info["locations"].get(location_id, f"미식별({location_id})")
-        
-        message = f"{location_name} {timing_info['type']}"
-        print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] {message}")
-        send_discord(message)
-        
-        last_sent_raids[full_key] = now
+        load_mapping()
+
+        # 2. [개선] JSON 파일에 존재하는 Opcode인 경우에만 로직 수행
+        # 하드코딩된 리스트 대신 raid_mapping의 키값을 직접 확인합니다.
+        if opcode_type in raid_mapping:
+            now = time.time()
+            # 중복 방지 체크
+            if full_key in last_sent_raids and now - last_sent_raids[full_key] < DUPE_WINDOW:
+                return
+
+            timing_info = raid_mapping[opcode_type]
+            location_name = timing_info["locations"].get(location_id, f"미식별({location_id})")
+
+            # 알림 발송
+            message = f"📢 **[습격 알림]** {location_name} {timing_info['type']}"
+            print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] {message}")
+            send_discord(message)
+
+            last_sent_raids[full_key] = now
 
 def save_to_file(data_to_save, label):
     if not data_to_save: return
@@ -149,10 +158,12 @@ def monitor_status():
 
 if __name__ == "__main__":
     print(f"패킷 분석기 및 알람 시작 ({START_HOUR}:00 ~ {END_HOUR}:00)")
+
+    # [수정] 실행 직후 디스코드 알림 테스트
+    send_startup_notification()
+
     threading.Thread(target=monitor_status, daemon=True).start()
     try:
         sniff(prn=packet_callback, store=0)
     except KeyboardInterrupt:
-        if current_log_data:
-            save_to_file(current_log_data, current_file_label)
         print("\n프로그램을 종료합니다.")
