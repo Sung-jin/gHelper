@@ -76,32 +76,38 @@ def is_recording_time():
     return False
 
 def check_raid_notification(payload_hex):
-    global last_sent_raids
+    global last_sent_raids, raid_mapping
     
-    if "1d000300" in payload_hex:
-        idx = payload_hex.find("1d000300")
-        opcode_type = payload_hex[idx+8:idx+12]
-        location_id = payload_hex[idx+12:idx+18]
-        full_key = f"{opcode_type}{location_id}"
+    # 1. 매핑 데이터 로드
+    load_mapping()
+    target_opcodes = list(raid_mapping.keys()) # ["83a0", "8380", "f180"] 등
 
-        load_mapping()
-
-        # 2. [개선] JSON 파일에 존재하는 Opcode인 경우에만 로직 수행
-        # 하드코딩된 리스트 대신 raid_mapping의 키값을 직접 확인합니다.
-        if opcode_type in raid_mapping:
+    for opcode in target_opcodes:
+        # 패턴 조합: 헤더(1d000300) + Opcode(83a0 등)
+        # 패킷 구조 분석 결과, Opcode 앞에 0000이 붙는 경우가 있어 유연하게 체크
+        pattern = f"1d000300{opcode}"
+        
+        if pattern in payload_hex:
+            idx = payload_hex.find(pattern)
+            # 패턴 바로 뒤 6자리가 장소 ID (예: 000010)
+            location_id = payload_hex[idx+12:idx+18]
+            
+            # 유효한 ID인지 체크 (너무 짧거나 비어있지 않은지)
+            if len(location_id) < 6: continue
+                
+            full_key = f"{opcode}{location_id}"
             now = time.time()
-            # 중복 방지 체크
+            
             if full_key in last_sent_raids and now - last_sent_raids[full_key] < DUPE_WINDOW:
-                return
+                continue
 
-            timing_info = raid_mapping[opcode_type]
+            timing_info = raid_mapping[opcode]
             location_name = timing_info["locations"].get(location_id, f"미식별({location_id})")
-
-            # 알림 발송
+            
             message = f"📢 **[습격 알림]** {location_name} {timing_info['type']}"
             print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] {message}")
             send_discord(message)
-
+            
             last_sent_raids[full_key] = now
 
 def save_to_file(data_to_save, label):
