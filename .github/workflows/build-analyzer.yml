@@ -30,19 +30,32 @@ jobs:
           $codeFile = "engine/tools/analyzer.py"
           $webhook = "${{ secrets.DISCORD_WEBHOOK_ETERNAL }}"
           
-          # URL이 비어있는지 확인
+          # 1. Secret 값이 실제로 존재하는지 검증
           if ([string]::IsNullOrEmpty($webhook)) {
-              Write-Error "DISCORD_WEBHOOK_ETERNAL secret is missing!"
+              Write-Error "GitHub Secrets에 DISCORD_WEBHOOK_ETERNAL이 설정되지 않았습니다!"
+              exit 1
           }
-
-          # 1. 정확하게 문자열 치환 (이스케이프 처리 포함)
-          $content = Get-Content $codeFile -Raw
-          $content = $content -replace 'YOUR_DISCORD_WEBHOOK_URL', $webhook
-          $content | Set-Content $codeFile -NoNewline
           
-          # 2. mapping.json 파일이 없으면 기본 빈 파일 생성 (빌드 에러 방지)
-          if (!(Test-Path "engine/tools/mapping.json")) {
-              '{"83a0": {"type": "습격 5분 전", "locations": {}}, "8380": {"type": "습격 1분 전", "locations": {}}, "f180": {"type": "습격 입장 가능", "locations": {}}}' | Out-File -FilePath "engine/tools/mapping.json" -Encoding utf8
+          # 2. 파이썬 코드 내의 DISCORD_WEBHOOK_URL 변수 라인을 통째로 교체
+          # 정규식을 사용하여 따옴표 내부의 값만 바꾸는 것이 아니라 라인 전체를 재구성합니다.
+          $content = Get-Content $codeFile -Raw
+          $newContent = $content -replace 'DISCORD_WEBHOOK_URL\s*=\s*"[^"]*"', "DISCORD_WEBHOOK_URL = `"$webhook`""
+          $newContent | Set-Content $codeFile -NoNewline
+          
+          Write-Host "Discord Webhook URL 주입 완료."
+          
+          # 3. mapping.json 파일이 없으면 기본 설정 파일 생성 (빌드 시 에러 방지용)
+          $mappingPath = "engine/tools/mapping.json"
+          if (!(Test-Path $mappingPath)) {
+              $defaultMapping = @{
+                  "83a0" = @{ "type" = "습격 5분 전"; "locations" = @{} }
+                  "8380" = @{ "type" = "습격 1분 전"; "locations" = @{} }
+                  "f180" = @{ "type" = "습격 입장 가능"; "locations" = @{} }
+              } | ConvertTo-Json -Depth 5
+              $defaultMapping | Out-File -FilePath $mappingPath -Encoding utf8
+              Write-Host "기본 mapping.json 파일을 생성했습니다."
+          } else {
+              Write-Host "기존 mapping.json 파일을 사용합니다."
           }
 
       - name: Build EXE with PyInstaller
