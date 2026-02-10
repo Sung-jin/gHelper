@@ -1,175 +1,148 @@
-import datetime
+import scapy.all as scapy
 import json
-import os
-import threading
 import time
-import requests
+import datetime
+import os
 import sys
-from scapy.all import sniff, Raw, IP
+import requests
 
-# --- [설정 영역] ---
-LOG_DIR = "packet_logs"
-START_HOUR = 19
-END_HOUR = 2
-SAVE_INTERVAL_MIN = 10
+# 설정 값
 DISCORD_WEBHOOK_URL = "YOUR_DISCORD_WEBHOOK_URL"
-DUPE_WINDOW = 5
+CONFIG_PATH = "engine/tools/mapping.json"
+LOG_DIR = "logs"
+DUPE_WINDOW = 30  # 중복 알림 방지 (초)
 
+# 폴더 생성
 if not os.path.exists(LOG_DIR):
     os.makedirs(LOG_DIR)
 
-# 전역 변수 초기화
 last_sent_raids = {}
 raid_mapping = {}
-current_log_data = []
-current_file_label = ""
-
-def send_startup_notification():
-    """앱 시작 시 URL 유효성 확인용 알림"""
-    now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    msg = f"🚀 **패킷 분석기 모니터링 시작!**\n- 시작 시간: {now_str}\n- 대상 대역: 119.205.203.x"
-
-    if "YOUR_DISCORD_WEBHOOK_URL" in DISCORD_WEBHOOK_URL:
-        print("\n[Warning] Webhook URL이 치환되지 않았습니다. 빌드 설정을 확인하세요.")
-    else:
-        send_discord(msg)
-        print("\n[*] 시작 알림을 디스코드로 전송했습니다.")
-
-def get_mapping_path(filename="mapping.json"):
-    """경로 우선순위: 1. EXE 외부, 2. EXE 내부(_MEIPASS), 3. 현재 디렉토리"""
-    if getattr(sys, 'frozen', False):
-        ext_path = os.path.join(os.path.dirname(sys.executable), filename)
-        if os.path.isfile(ext_path): return ext_path
-    if hasattr(sys, '_MEIPASS'):
-        int_path = os.path.join(sys._MEIPASS, filename)
-        if os.path.isfile(int_path): return int_path
-    return os.path.join(os.getcwd(), filename)
-
-MAPPING_FILE = get_mapping_path("mapping.json")
+captured_packets = []
+last_save_time = time.time()
 
 def load_mapping():
     global raid_mapping
-    try:
-        if os.path.exists(MAPPING_FILE):
-            with open(MAPPING_FILE, "r", encoding="utf-8") as f:
-                raid_mapping = json.load(f)
-        return raid_mapping
-    except Exception as e:
-        return {}
+    # 실행 파일 옆의 mapping.json 확인
+    if not os.path.exists(CONFIG_PATH):
+        print(f"\n[Error] {CONFIG_PATH} 파일이 없습니다.")
+        print("프로그램 실행을 위해 mapping.json 파일이 필요합니다.")
+        print("3초 뒤 프로그램을 종료합니다...")
+        time.sleep(3)
+        sys.exit(1)
 
-def send_discord(content):
-    if "YOUR_DISCORD_WEBHOOK_URL" in DISCORD_WEBHOOK_URL: return
     try:
-        payload = {"content": content}
-        # 전송 결과 확인을 위해 response 로그 추가
-        resp = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
-        if resp.status_code != 204:
-            print(f"\n[Error] Discord 전송 실패 (Status: {resp.status_code})")
+        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+            raid_mapping = json.load(f)
     except Exception as e:
-        print(f"\n[Error] 디스코드 발송 예외 발생: {e}")
+        print(f"[Error] mapping.json 읽기 실패: {e}")
+        sys.exit(1)
 
-def is_recording_time():
-    now = datetime.datetime.now()
-    current_hour = now.hour
-    if current_hour >= START_HOUR or current_hour < END_HOUR:
-        return True
-    return False
+def send_discord(message):
+    if DISCORD_WEBHOOK_URL.startswith("http"):
+        try:
+            requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
+        except Exception as e:
+            print(f"디스코드 전송 실패: {e}")
+
+def save_to_file():
+    """10분 단위로 수집된 모든 패킷 데이터를 파일로 저장"""
+    global captured_packets, last_save_time
+    if not captured_packets:
+        last_save_time = time.time()
+        return
+
+    label = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    filename = f"recon_{label}.json"
+    filepath = os.path.join(LOG_DIR, filename)
+
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(captured_packets, f, ensure_ascii=False, indent=2)
+        print(f"\n[{datetime.datetime.now()}] 전체 로그 저장 완료: {filename}")
+    except Exception as e:
+        print(f"파일 저장 에러: {e}")
+
+    captured_packets = []
+    last_save_time = time.time()
 
 def check_raid_notification(payload_hex):
     global last_sent_raids, raid_mapping
-    
-    # 1. 매핑 데이터 로드
     load_mapping()
-    target_opcodes = list(raid_mapping.keys()) # ["83a0", "8380", "f180"] 등
 
-    for opcode in target_opcodes:
-        # 패턴 조합: 헤더(1d000300) + Opcode(83a0 등)
-        # 패킷 구조 분석 결과, Opcode 앞에 0000이 붙는 경우가 있어 유연하게 체크
-        pattern = f"1d000300{opcode}"
-        
-        if pattern in payload_hex:
-            idx = payload_hex.find(pattern)
-            # 패턴 바로 뒤 6자리가 장소 ID (예: 000010)
-            location_id = payload_hex[idx+12:idx+18]
-            
-            # 유효한 ID인지 체크 (너무 짧거나 비어있지 않은지)
-            if len(location_id) < 6: continue
-                
-            full_key = f"{opcode}{location_id}"
+    # 시스템 코드(1d000300) 단위로 분할
+    segments = payload_hex.split("1d000300")
+
+    for seg in segments[1:]:
+        if len(seg) > 30: continue
+
+        found_type = None
+        if "a0" in seg[:8]: found_type = "a0"
+        elif "80" in seg[:8]: found_type = "80"
+        elif "f1" in seg[:8]: found_type = "f1"
+
+        if found_type:
+            # ID 추출 로직 (앞에 0000이 있으면 4칸 건너뛰고 6자리)
+            data_part = seg[4:]
+            if data_part.startswith("0000"):
+                potential_id = data_part[4:10]
+            else:
+                potential_id = data_part[:6]
+
+            if not potential_id: continue
+
+            full_key = f"{found_type}{potential_id}"
             now = time.time()
-            
+
             if full_key in last_sent_raids and now - last_sent_raids[full_key] < DUPE_WINDOW:
                 continue
 
-            timing_info = raid_mapping[opcode]
-            location_name = timing_info["locations"].get(location_id, f"미식별({location_id})")
-            
-            message = f"📢 **[습격 알림]** {location_name} {timing_info['type']}"
-            print(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')}] {message}")
+            timing_info = raid_mapping.get(found_type, {"type": "미등록 단계", "locations": {}})
+            location_name = timing_info.get("locations", {}).get(potential_id, f"신규({potential_id})")
+
+            message = (
+                f"📢 **[습격 탐지]** {location_name} {timing_info['type']}\n"
+                f"- 코드: {found_type} / ID: {potential_id}\n"
+                f"- 원본: `1d000300{seg[:20]}`"
+            )
+            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {location_name} 감지")
             send_discord(message)
-            
             last_sent_raids[full_key] = now
 
-def save_to_file(data_to_save, label):
-    if not data_to_save: return
-    filename = f"recon_{label}.json"
-    filepath = os.path.join(LOG_DIR, filename)
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data_to_save, f, ensure_ascii=False, indent=2)
-    print(f"\n[{datetime.datetime.now()}] 저장 완료: {filename}")
+        else:
+            # 30자 미만의 미식별 시스템 패킷 디버깅용
+            debug_msg = (
+                f"🔍 **[미확인 소형 패킷]**\n"
+                f"- 데이터: `1d000300{seg}`\n"
+                f"- 분석: 새로운 패턴일 수 있음"
+            )
+            print(f"[DEBUG] {debug_msg}")
+            send_discord(debug_msg)
 
 def packet_callback(packet):
-    global current_log_data, current_file_label
+    global captured_packets, last_save_time
 
-    if packet.haslayer(Raw) and packet.haslayer(IP):
-        # 1. IP 필터링 (한 번만 수행)
-        if not (packet[IP].dst.startswith("119.205.203") or packet[IP].src.startswith("119.205.203")):
-            return
+    if packet.haslayer(scapy.Raw):
+        payload = packet[scapy.Raw].load
+        payload_hex = payload.hex()
 
-        now = datetime.datetime.now()
-        payload_hex = packet[Raw].load.hex()
-
-        # 2. 실시간 습격 탐지 (녹화 시간 상관없이 항상 실행)
-        check_raid_notification(payload_hex)
-    
-        # 3. 녹화 시간 체크 및 데이터 저장
-        if not is_recording_time():
-            if current_log_data:
-                temp_data, temp_label = current_log_data[:], current_file_label
-                current_log_data, current_file_label = [], ""
-                threading.Thread(target=save_to_file, args=(temp_data, temp_label)).start()
-            return
-
-        # 4. 10분 단위 파일 교체 로직
-        file_label = now.strftime("%Y%m%d_%H") + str((now.minute // SAVE_INTERVAL_MIN) * SAVE_INTERVAL_MIN).zfill(2)
-        if current_file_label != "" and current_file_label != file_label:
-            temp_data, temp_label = current_log_data[:], current_file_label
-            current_log_data = []
-            threading.Thread(target=save_to_file, args=(temp_data, temp_label)).start()
-
-        current_file_label = file_label
-        current_log_data.append({
-            "time": now.strftime('%H:%M:%S.%f'),
-            "src": packet[IP].src,
-            "dst": packet[IP].dst,
-            "size": len(packet[Raw].load),
+        # 1. 파일 저장을 위한 데이터 수집
+        pkt_info = {
+            "time": datetime.datetime.now().strftime("%H:%M:%S.%f"),
+            "src": packet[scapy.IP].src if packet.haslayer(scapy.IP) else "unknown",
+            "dst": packet[scapy.IP].dst if packet.haslayer(scapy.IP) else "unknown",
+            "size": len(payload),
             "data": payload_hex
-        })
+        }
+        captured_packets.append(pkt_info)
 
-def monitor_status():
-    while True:
-        status = "● 녹화 중" if is_recording_time() else "○ 대기 중"
-        print(f"\r현재 시간: {datetime.datetime.now().strftime('%H:%M:%S')} | 상태: {status}", end="")
-        time.sleep(1)
+        # 2. 실시간 습격 탐지 로직 실행
+        check_raid_notification(payload_hex)
 
-if __name__ == "__main__":
-    print(f"패킷 분석기 및 알람 시작 ({START_HOUR}:00 ~ {END_HOUR}:00)")
+        # 3. 10분(600초)마다 자동 저장
+        if time.time() - last_save_time > 600:
+            save_to_file()
 
-    # [수정] 실행 직후 디스코드 알림 테스트
-    send_startup_notification()
-
-    threading.Thread(target=monitor_status, daemon=True).start()
-    try:
-        sniff(prn=packet_callback, store=0)
-    except KeyboardInterrupt:
-        print("\n프로그램을 종료합니다.")
+print("🚀 패킷 분석기 및 데이터 녹화 시작...")
+send_discord("🚀 패킷 분석 모니터링 및 녹화 시스템이 시작되었습니다.")
+scapy.sniff(filter="tcp", prn=packet_callback, store=0)

@@ -1,20 +1,14 @@
 {
-  "83a0": {
+  "a0": {
     "type": "습격 5분 전",
-    "locations": {
-
-    }
+    "locations": {}
   },
-  "8380": {
+  "80": {
     "type": "습격 1분 전",
-    "locations": {
-
-    }
+    "locations": {}
   },
-  "f180": {
+  "f1": {
     "type": "습격 입장 가능",
-    "locations": {
-
-    }
+    "locations": {}
   }
 }
