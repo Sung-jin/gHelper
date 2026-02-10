@@ -70,19 +70,21 @@ def check_raid_notification(payload_hex):
     global last_sent_raids, raid_mapping
     load_mapping()
 
-    # 시스템 코드(1d000300) 단위로 분할
     segments = payload_hex.split("1d000300")
-
+    
     for seg in segments[1:]:
-        if len(seg) > 30: continue
+        if len(seg) > 30: continue 
 
+        # [변경] 단순히 포함 여부가 아니라, 정확한 위치(앞 4자)의 Opcode를 확인
+        opcode = seg[0:4] 
+        
         found_type = None
-        if "a0" in seg[:8]: found_type = "a0"
-        elif "80" in seg[:8]: found_type = "80"
-        elif "f1" in seg[:8]: found_type = "f1"
-
+        if opcode == "80a0": found_type = "a0"   # 5분 전
+        elif opcode == "8080": found_type = "80" # 1분 전
+        elif opcode == "f180": found_type = "f1" # 시작
+        
+        # 만약 위 조건에 해당하지 않으면 (예: 0840, 0880 등) 무시됨
         if found_type:
-            # ID 추출 로직 (앞에 0000이 있으면 4칸 건너뛰고 6자리)
             data_part = seg[4:]
             if data_part.startswith("0000"):
                 potential_id = data_part[4:10]
