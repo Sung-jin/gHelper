@@ -42,24 +42,26 @@ jobs:
 
       - name: Build EXE with PyInstaller
         shell: pwsh
+        working-directory: engine/tools
         run: |
-          # 1. --onefile: 모든 모듈을 하나로 합침
-          # 2. --uac-admin: 관리자 권한 요청 (스니핑 필수)
-          # 3. --paths: recording.py, utils.py가 있는 경로 추가
-          # 4. 외부 수정을 위해 --add-data는 제외함
-          
+          # 1. 빌드 수행
           pyinstaller --onefile `
                       --uac-admin `
                       --name "PacketAnalyzer" `
                       --clean `
-                      --paths "engine/tools" `
-                      engine/tools/analyzer.py
+                      --paths "." `
+                      analyzer.py
+          
+          # 2. 배포용 폴더(out) 생성 및 파일 모으기
+          # (dist 폴더의 EXE와 현재 폴더의 mapping.json을 out 폴더로 복사)
+          New-Item -ItemType Directory -Force -Path "out"
+          Copy-Item "dist/PacketAnalyzer.exe" -Destination "out/"
+          Copy-Item "mapping.json" -Destination "out/"
+          
+          Write-Host "배포용 패키지 준비 완료 (out 폴더)"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PacketAnalyzer-Release-Package
-          # 실행 파일과 수동 수정용 mapping.json을 함께 업로드
-          path: |
-            dist/PacketAnalyzer.exe
-            engine/tools/mapping.json
+          path: engine/tools/out/*
