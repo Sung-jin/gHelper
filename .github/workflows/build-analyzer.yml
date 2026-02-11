@@ -20,57 +20,46 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller requests scapy
-          # 만약 별도의 requirements 파일이 있다면 아래 주석을 해제하세요.
-          # pip install -r engine/tools/requirements.txt
-          # pip install -r engine/requirements.txt
 
-      - name: Inject Secrets and Prepare Files
+      - name: Inject Secrets into Config
         shell: pwsh
         run: |
+          # analyzer.py에 설정된 기본 웹훅 URL을 GitHub Secret 값으로 교체합니다.
           $codeFile = "engine/tools/analyzer.py"
           $webhook = "${{ secrets.DISCORD_WEBHOOK_ETERNAL }}"
           
-          # 1. Secret 값이 실제로 존재하는지 검증
           if ([string]::IsNullOrEmpty($webhook)) {
               Write-Error "GitHub Secrets에 DISCORD_WEBHOOK_ETERNAL이 설정되지 않았습니다!"
               exit 1
           }
           
-          # 2. 파이썬 코드 내의 DISCORD_WEBHOOK_URL 변수 라인을 통째로 교체
-          # 정규식을 사용하여 따옴표 내부의 값만 바꾸는 것이 아니라 라인 전체를 재구성합니다.
+          # 코드 내의 DEFAULT_WEBHOOK_URL 변수 라인을 Secret 값으로 치환
           $content = Get-Content $codeFile -Raw
-          $newContent = $content -replace 'DISCORD_WEBHOOK_URL\s*=\s*"[^"]*"', "DISCORD_WEBHOOK_URL = `"$webhook`""
+          $newContent = $content -replace 'DEFAULT_WEBHOOK_URL\s*=\s*"[^"]*"', "DEFAULT_WEBHOOK_URL = `"$webhook`""
           $newContent | Set-Content $codeFile -NoNewline
           
           Write-Host "Discord Webhook URL 주입 완료."
-          
-          # 3. mapping.json 파일이 없으면 기본 설정 파일 생성 (빌드 시 에러 방지용)
-          $mappingPath = "engine/tools/mapping.json"
-          if (!(Test-Path $mappingPath)) {
-              $defaultMapping = @{
-                  "83a0" = @{ "type" = "습격 5분 전"; "locations" = @{} }
-                  "8380" = @{ "type" = "습격 1분 전"; "locations" = @{} }
-                  "f180" = @{ "type" = "습격 입장 가능"; "locations" = @{} }
-              } | ConvertTo-Json -Depth 5
-              $defaultMapping | Out-File -FilePath $mappingPath -Encoding utf8
-              Write-Host "기본 mapping.json 파일을 생성했습니다."
-          } else {
-              Write-Host "기존 mapping.json 파일을 사용합니다."
-          }
 
       - name: Build EXE with PyInstaller
         shell: pwsh
         run: |
-          # --add-data "소스경로;대상경로" (Windows는 세미콜론 사용)
-          # --uac-admin: 실행 시 관리자 권한 요청 (패킷 스니핑에 필수)
+          # 1. --onefile: 모든 모듈을 하나로 합침
+          # 2. --uac-admin: 관리자 권한 요청 (스니핑 필수)
+          # 3. --paths: recording.py, utils.py가 있는 경로 추가
+          # 4. 외부 수정을 위해 --add-data는 제외함
+          
           pyinstaller --onefile `
                       --uac-admin `
                       --name "PacketAnalyzer" `
-                      --add-data "engine/tools/mapping.json;." `
+                      --clean `
+                      --paths "engine/tools" `
                       engine/tools/analyzer.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PacketAnalyzer-Windows
-          path: dist/PacketAnalyzer.exe
+          name: PacketAnalyzer-Release-Package
+          # 실행 파일과 수동 수정용 mapping.json을 함께 업로드
+          path: |
+            dist/PacketAnalyzer.exe
+            engine/tools/mapping.json
