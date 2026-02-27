@@ -23,63 +23,77 @@ raid_mapping = ConfigManager.get_global("raid_mapping", {})
 alert_cooldowns = {}
 COOLDOWN_SECONDS = 60
 pending_payload = ""
+# { "location_id": [time1, time2, ...] } 형태로 여러 예고 시간 저장
+pre_warning_registry = {} 
 
 def packet_callback(packet):
     global pending_payload
-    if not packet.haslayer(scapy.Raw):
-        return
+    if not packet.haslayer(scapy.Raw): return
 
     try:
         current_payload = packet[scapy.Raw].load.hex()
-        # 원본 로그 기록
+        # 로그 기록
         recorder.add_entry({"t": datetime.datetime.now().strftime("%H:%M:%S.%f"), "d": current_payload})
-        # 1. 이전 패킷의 잔여분과 합치기
-        combined_payload = pending_payload + current_payload
         
-        # 2. 분석 후 다음 패킷을 위해 현재 패킷의 뒷부분 저장
-        pending_payload = current_payload[-300:] 
+        combined = pending_payload + current_payload
+        last_header_idx = combined.rfind("1d000300")
+        
+        if last_header_idx != -1:
+            process_area = combined[:last_header_idx]
+            pending_payload = combined[last_header_idx:]
+        else:
+            pending_payload = combined[-300:]
+            return
 
-        # 3. '1d000300' 단위 분할
-        chunks = combined_payload.split("1d000300")
+        chunks = process_area.split("1d000300")
         for chunk in chunks[1:]:
-            if not (chunk.startswith("cb80") or chunk.startswith("cba0")):
+            if len(chunk) < 20 or not (chunk.startswith("cb80") or chunk.startswith("cba0")):
                 continue
             
             actual_content = chunk.split("1d00")[0]
-            
-            # 4. Key(단계) 탐색
             detected_key = next((k for k in raid_mapping.keys() if k in actual_content), None)
-            if detected_key:
-                known_locs = raid_mapping[detected_key].get("locations", {})
+            
+            if not detected_key: continue
+            
+            known_locs = raid_mapping[detected_key].get("locations", {})
+            found_id = next((id for id in known_locs if id in actual_content), None)
+            
+            if found_id:
+                current_time = time.time()
                 
-                # ID 찾기 및 이름 정의
-                found_id = next((id for id in known_locs if id in actual_content), None)
-                found_name = known_locs.get(found_id) if found_id else "미식별 장소"
+                # --- 교차 검증 로직 시작 ---
                 
-                # 미식별 시 후보군 추출
-                if not found_id:
-                    candidates = [actual_content[i:i+6] for i in range(0, len(actual_content)-6, 2)
-                                 if actual_content[i:i+6] != "000000" and not actual_content[i:i+6].startswith("00")]
-                    if candidates:
-                        found_id = candidates[0]
+                # 1. 5분 전(80a0) 발생 시: 시간 리스트에 추가 (덮어쓰기 방지)
+                if detected_key == "80a0":
+                    if found_id not in pre_warning_registry:
+                        pre_warning_registry[found_id] = []
+                    pre_warning_registry[found_id].append(current_time)
+                    # 리스트가 너무 커지지 않게 최근 5개만 유지
+                    pre_warning_registry[found_id] = pre_warning_registry[found_id][-5:]
 
-                # 5. 알림 로직
-                if found_id:
-                    current_time = time.time()
-                    cooldown_key = (detected_key, found_id)
+                # 2. 1분 전(8080) 발생 시: 리스트 내 시간들과 대조
+                elif detected_key == "8080":
+                    warning_times = pre_warning_registry.get(found_id, [])
+                    is_validated = False
                     
-                    if current_time - alert_cooldowns.get(cooldown_key, 0) > COOLDOWN_SECONDS:
-                        status_type = raid_mapping[detected_key]["type"]
-                        if found_name != "미식별 장소":
-                            msg = f"🚨 [습격 감지] {found_name} ({status_type})"
-                        else:
-                            msg = f"❓ [미식별 습격] 신규 ID 포착! ({status_type})\n추출 ID: {found_id}"
+                    for t in warning_times:
+                        # 3분(180초) ~ 6분(360초) 사이의 예고가 있는지 확인
+                        if 180 <= (current_time - t) <= 360:
+                            is_validated = True
+                            break
+                    
+                    if is_validated:
+                        # 검증 성공 시에만 알림 발송 및 쿨타임 체크
+                        cooldown_key = (detected_key, found_id)
+                        if current_time - alert_cooldowns.get(cooldown_key, 0) > COOLDOWN_SECONDS:
+                            loc_name = known_locs.get(found_id, "미식별")
+                            msg = f"🚨 [검증완료] {loc_name} 습격 1분 전!"
+                            notifier.send_discord(msg)
+                            alert_cooldowns[cooldown_key] = current_time
+                            # 사용된 예고 데이터 삭제
+                            pre_warning_registry[found_id] = [] 
 
-                        print(f"[*] {datetime.datetime.now()} - {msg}")
-                        notifier.send_discord(msg)
-                        alert_cooldowns[cooldown_key] = current_time
-
-    except Exception as e:
+    except Exception:
         pass
 
 if __name__ == "__main__":
