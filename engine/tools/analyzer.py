@@ -29,64 +29,60 @@ def packet_callback(packet):
 
     try:
         payload_hex = packet[scapy.Raw].load.hex()
-        recorder.add_entry({
-            "t": datetime.datetime.now().strftime("%H:%M:%S.%f"),
-            "d": payload_hex
-        })
+        # 원본 로그 기록
+        recorder.add_entry({"t": datetime.datetime.now().strftime("%H:%M:%S.%f"), "d": payload_hex})
 
-        # 구조적 정밀 탐색 (Header 1d000300)
-        header_idx = payload_hex.find("1d000300")
-        if header_idx == -1: return
+        # 1. '1d000300' (시스템 메시지 시작) 단위로 전체 패킷 분할
+        chunks = payload_hex.split("1d000300")
 
-        # Key(단계) 확인 (Header로부터 16자 뒤)
-        key_pos = header_idx + 16
-        detected_key = None
-        for key in raid_mapping.keys():
-            if payload_hex.startswith(key, key_pos):
-                detected_key = key
-                break
+        for chunk in chunks[1:]: # 첫 번째 분할물은 헤더 이전 데이터이므로 제외
 
-        if detected_key:
-            # ID 추출 (Key 이후 데이터 영역에서 6자리 탐색)
-            # 보통 Key 뒤에 0000 패딩 이후 위치하므로 범위를 지정하여 탐색
-            search_area = payload_hex[key_pos + 4 : key_pos + 44]
+            # 2. 메시지 타입 지문(Fingerprint) 검증
+            if not (chunk.startswith("cb80") or chunk.startswith("cba0")):
+                continue
 
+            # 3. 메시지 유효 범위 확정
+            # 1d000300 이후 다음 시스템 메시지(1d00)가 나오기 전까지만 실제 습격 데이터
+            actual_content = chunk.split("1d00")[0]
+
+            # 4. 단계(Key) 확인 (80a0, 8080, f180 등)
+            detected_key = next((k for k in raid_mapping.keys() if k in actual_content), None)
+            if not detected_key:
+                continue
+
+            # 5. 장소 ID 확인 (mapping.json 기반)
             known_locations = raid_mapping[detected_key].get("locations", {})
-            found_loc_id = None
-            found_loc_name = "미식별 장소"
+            found_id = None
+            found_name = "미식별 장소"
 
-            # 등록된 ID 우선 확인
             for loc_id, loc_name in known_locations.items():
-                if loc_id in search_area:
-                    found_loc_id = loc_id
-                    found_loc_name = loc_name
+                if loc_id in actual_content:
+                    found_id = loc_id
+                    found_name = loc_name
                     break
 
-            # 등록되지 않은 경우, search_area에서 0000이 아닌 첫 6자리 후보 추출
-            if not found_loc_id:
-                # 0000을 제외한 유의미한 6자리 추출
-                cleaned_area = search_area.replace("0000", "")
-                if len(cleaned_area) >= 6:
-                    found_loc_id = cleaned_area[:6]
+            # 6. 미식별 습격 처리
+            if not found_id:
+                # 0000 패딩을 제외한 유의미한 6자리 후보 추출
+                candidates = [actual_content[i:i+6] for i in range(0, len(actual_content)-6, 2)
+                              if actual_content[i:i+6] != "000000" and not actual_content[i:i+6].startswith("00")]
+                if candidates:
+                    found_id = candidates[0]
 
-            # 5. 쿨타임 체크 (Key + ID 조합)
-            if found_loc_id:
+            # 7. 쿨타임 적용 및 최종 알림
+            if found_id:
                 current_time = time.time()
-                cooldown_key = (detected_key, found_loc_id)
-                last_sent = alert_cooldowns.get(cooldown_key, 0)
+                cooldown_key = (detected_key, found_id)
 
-                if current_time - last_sent > COOLDOWN_SECONDS:
+                if current_time - alert_cooldowns.get(cooldown_key, 0) > COOLDOWN_SECONDS:
                     status_type = raid_mapping[detected_key]["type"]
-
-                    if found_loc_name != "미식별 장소":
-                        msg = f"🚨 [습격 감지] {found_loc_name} ({status_type})"
+                    if found_name != "미식별 장소":
+                        msg = f"🚨 [습격 감지] {found_name} ({status_type})"
                     else:
-                        msg = f"❓ [미식별 습격] 새로운 ID 포착! ({status_type})\nID 후보: {found_loc_id}"
+                        msg = f"❓ [미식별 습격] 신규 ID 포착! ({status_type})\n추출 ID: {found_id}"
 
                     print(f"[*] {datetime.datetime.now()} - {msg}")
                     notifier.send_discord(msg)
-
-                    # 쿨타임 업데이트
                     alert_cooldowns[cooldown_key] = current_time
 
     except Exception:
@@ -94,7 +90,7 @@ def packet_callback(packet):
 
 if __name__ == "__main__":
     print("="*50)
-    print("  Raid Detection & Recording System v3.0")
+    print("  Raid Detection & Recording System v3.1")
     print(f"  Monitoring: {recorder.start_hour}:00 ~ {recorder.end_hour}:00")
     print("="*50)
 
