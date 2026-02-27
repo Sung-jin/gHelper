@@ -31,6 +31,8 @@ def packet_callback(packet):
 
     try:
         current_payload = packet[scapy.Raw].load.hex()
+        # 원본 로그 기록
+        recorder.add_entry({"t": datetime.datetime.now().strftime("%H:%M:%S.%f"), "d": current_payload})
         # 1. 이전 패킷의 잔여분과 합치기
         combined_payload = pending_payload + current_payload
         
