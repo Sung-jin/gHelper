@@ -19,15 +19,18 @@ recorder = PacketRecorder(
 notifier = Notifier()
 raid_mapping = ConfigManager.get_global("raid_mapping", {})
 
-# 쿨타임 관리를 위한 딕셔너리 {(key, loc_id): last_sent_time}
-alert_cooldowns = {}
-COOLDOWN_SECONDS = 60
+# [전역 상태 관리]
 pending_payload = ""
-# { "location_id": [time1, time2, ...] } 형태로 여러 예고 시간 저장
-pre_warning_registry = {} 
+pre_warning_registry = {}  # { "location_id": timestamp }
+alert_cooldowns = {}
+
+# [상수 설정]
+INTERVAL_4MIN = 240  # 5분 전 -> 1분 전 간격 (초)
+INTERVAL_1MIN = 60   # 1분 전 -> 시작 간격 (초)
+MARGIN = 5           # 허용 오차 범위 (초)
+COOLDOWN = 60        # 동일 알림 중복 방지 (초)
 
 def packet_callback(packet):
-    # 전역 상태를 유지하기 위해 global 선언
     global pending_payload
     global pre_warning_registry
     
@@ -37,18 +40,21 @@ def packet_callback(packet):
     try:
         current_payload = packet[scapy.Raw].load.hex()
         
-        # [발전용 데이터 기록] - 성능을 위해 이전에 설정한 recorder 사용
+        # 발전 및 디버깅을 위한 전체 로그 기록 (기존 recorder 유지)
         recorder.add_entry({"t": datetime.datetime.now().strftime("%H:%M:%S.%f"), "d": current_payload})
         
-        # 1. 분절 패킷 처리를 위한 스트림 결합
+        # 1. 분절 패킷 결합 및 처리
         combined = pending_payload + current_payload
         last_header_idx = combined.rfind("1d000300")
         
         if last_header_idx != -1:
-            # 마지막 헤더 전까지의 완성된 메시지만 분석 대상으로 확정
-            process_area = combined[:last_header_idx]
-            # 마지막 헤더 이후는 다음 패킷과 합치기 위해 보관 (중복 검사 방지)
-            pending_payload = combined[last_header_idx:]
+            # 마지막 헤더 이후 데이터가 너무 짧으면(80자 미만) 다음 패킷과 합치기 위해 보관
+            if len(combined[last_header_idx:]) < 80:
+                process_area = combined[:last_header_idx]
+                pending_payload = combined[last_header_idx:]
+            else:
+                process_area = combined
+                pending_payload = ""
         else:
             # 헤더가 없으면 노이즈 방지를 위해 최소한의 잔여분만 유지
             pending_payload = combined[-300:]
@@ -57,69 +63,70 @@ def packet_callback(packet):
         if not process_area:
             return
 
-        # 2. 완성된 메시지 덩어리(Chunk) 분석
+        # 2. 메시지 덩어리 분석 (1d000300 기준 분할)
         chunks = process_area.split("1d000300")
         for chunk in chunks[1:]:
-            # 엄격한 규격 검증: 최소 길이 및 지문(cb800000/cba00000) 확인
-            if len(chunk) < 40: continue
+            # 구조적 지문 검증 (cb80/cba0로 시작하는 시스템 메시지인지 확인)
             if not (chunk.startswith("cb800000") or chunk.startswith("cba00000")):
                 continue
             
             actual_content = chunk.split("1d00")[0]
             
-            # 3. 습격 단계(Key) 탐색
+            # 3. 습격 단계 키(Key) 탐색
             detected_key = next((k for k in raid_mapping.keys() if k in actual_content), None)
             if not detected_key:
                 continue
             
             known_locs = raid_mapping[detected_key].get("locations", {})
             
-            # 4. [핵심] 구조적 검증: Key 발견 지점 근처에서만 ID 탐색 (노이즈 차단)
+            # 4. [보완] 구조적 ID 탐색 (Key 발견 지점 인근 100자 이내에서만 ID 탐색)
             found_id = None
             key_pos = actual_content.find(detected_key)
-            search_area = actual_content[key_pos : key_pos + 40] # 주변 40자 이내
+            search_area = actual_content[key_pos : key_pos + 100]
             
             for loc_id in known_locs.keys():
                 if loc_id in search_area:
                     found_id = loc_id
                     break
             
-            # 5. 교차 검증 및 알림 처리
-            if found_id:
-                current_time = time.time()
-                
-                # A. 5분 전(80a0) 패턴 발생 시: 예고 리스트 등록 및 청소
-                if detected_key == "80a0":
-                    if found_id not in pre_warning_registry:
-                        pre_warning_registry[found_id] = []
-                    
-                    # [메모리 청소] 해당 ID의 기록 중 10분(600초) 이상 된 낡은 데이터 삭제
-                    pre_warning_registry[found_id] = [t for t in pre_warning_registry[found_id] 
-                                                      if current_time - t < 600]
-                    
-                    pre_warning_registry[found_id].append(current_time)
-                    # 리스트 덮어쓰기 방지를 위해 최신 3개 기록 유지
-                    pre_warning_registry[found_id] = pre_warning_registry[found_id][-3:]
+            if not found_id:
+                continue
 
-                # B. 1분 전(8080) 패턴 발생 시: 3~6분 전 예고 여부 대조
-                elif detected_key == "8080":
-                    warning_times = pre_warning_registry.get(found_id, [])
-                    
-                    # 리스트 내 기록 중 하나라도 180~360초 이내에 있다면 검증 성공
-                    is_validated = any(180 <= (current_time - t) <= 360 for t in warning_times)
-                    
-                    if is_validated:
-                        cooldown_key = (detected_key, found_id)
-                        if current_time - alert_cooldowns.get(cooldown_key, 0) > COOWN_SECONDS:
-                            loc_name = known_locs.get(found_id, "미식별 장소")
-                            # 실제 습격일 때만 디스코드 발송 (콘솔 출력 X)
-                            notifier.send_discord(f"🚨 [검증완료] {loc_name} 습격 1분 전!")
-                            alert_cooldowns[cooldown_key] = current_time
-                            # 검증에 사용된 예고 데이터 초기화
-                            pre_warning_registry[found_id] = []
+            # 5. [핵심] 4분-1분 연쇄 검증 로직
+            current_time = time.time()
+            
+            # A. 5분 전 (80a0) -> 메모리에 예약만 수행
+            if detected_key == "80a0":
+                pre_warning_registry[found_id] = current_time
+                # 오래된 예고(10분 초과) 데이터 청소
+                pre_warning_registry = {k: v for k, v in pre_warning_registry.items() if current_time - v < 600}
+
+            # B. 1분 전 (8080) -> 4분 전(240초) 예고 기록과 대조
+            elif detected_key == "8080":
+                last_warn_time = pre_warning_registry.get(found_id, 0)
+                time_diff = current_time - last_warn_time
+                
+                # 정확히 240초(±5초) 주기가 일치할 때만 실제 습격으로 간주
+                if (INTERVAL_4MIN - MARGIN) <= time_diff <= (INTERVAL_4MIN + MARGIN):
+                    cooldown_key = (detected_key, found_id)
+                    if current_time - alert_cooldowns.get(cooldown_key, 0) > COOLDOWN:
+                        loc_name = known_locs.get(found_id, "미식별 장소")
+                        # 검증 성공 알림 발송
+                        notifier.send_discord(f"🚨 [검증성공] {loc_name} 습격 1분 전! (4분 주기 일치)")
+                        alert_cooldowns[cooldown_key] = current_time
+                        # 다음 단계(시작) 검증을 위해 시간 업데이트
+                        pre_warning_registry[found_id] = current_time
+
+            # C. 지금 시작 (f180) -> 1분 전(60초) 알림 기록과 대조
+            elif detected_key == "f180":
+                last_alert_time = pre_warning_registry.get(found_id, 0)
+                time_diff = current_time - last_alert_time
+                
+                if (INTERVAL_1MIN - MARGIN) <= time_diff <= (INTERVAL_1MIN + MARGIN):
+                    # 필요 시 "습격 시작" 알림 추가 가능
+                    pass
 
     except Exception:
-        # 프레임 드랍 방지를 위해 에러 로그는 무시하거나 파일로만 기록
         pass
 
 if __name__ == "__main__":
