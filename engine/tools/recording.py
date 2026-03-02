@@ -34,7 +34,8 @@ class PacketRecorder:
             return
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(self.log_dir, f"packet_{timestamp}.json")
+        date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        filename = os.path.join(self.log_dir, date_str, f"packet_{timestamp}.json")
         
         try:
             with open(filename, 'w', encoding='utf-8') as f:

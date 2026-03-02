@@ -11,9 +11,9 @@ DEFAULT_WEBHOOK_URL = "YOUR_DISCORD_WEBHOOK_URL"
 ConfigManager.init_app_config("mapping.json", DEFAULT_WEBHOOK_URL)
 
 recorder = PacketRecorder(
-    start_hour=19, 
-    end_hour=2, 
-    interval_min=10, 
+    start_hour=0,
+    end_hour=24,
+    interval_min=10,
     log_dir=os.path.join(ConfigManager.get_base_path(), "logs")
 )
 notifier = Notifier()
