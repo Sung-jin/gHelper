@@ -35,13 +35,24 @@ class PacketRecorder:
         
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         date_str = datetime.datetime.now().strftime("%Y-%m-%d")
-        filename = os.path.join(self.log_dir, date_str, f"packet_{timestamp}.json")
+        
+        # 1. 저장할 폴더 경로를 먼저 계산합니다.
+        target_dir = os.path.join(self.log_dir, date_str)
+        
+        # 2. [핵심] 해당 날짜의 하위 폴더가 없으면 생성합니다.
+        if not os.path.exists(target_dir):
+            os.makedirs(target_dir, exist_ok=True)
+            print(f"[*] 새 로그 폴더 생성됨: {target_dir}")
+        
+        # 3. 최종 파일 경로 계산
+        filename = os.path.join(target_dir, f"packet_{timestamp}.json")
         
         try:
             with open(filename, 'w', encoding='utf-8') as f:
                 json.dump(self.buffer, f, indent=2)
             self.buffer = []
             self.last_save_time = datetime.datetime.now()
+            print(f"[+] 패킷 저장 완료: {filename}") # 저장 확인용 출력
         except Exception as e:
             print(f"[!] 저장 오류: {e}")
 
