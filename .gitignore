@@ -46,3 +46,7 @@ packet_log.txt
 # PyInstaller 빌드 관련
 build/
 *.spec
+
+# --- 라벨링 샘플 (백데이터, 선택 관리) ---
+# GitHub에는 코드·문서만 올리고 샘플은 로컬/별도 백업 권장. 필요 시 아래 줄 삭제.
+engine/tools/analyze/
