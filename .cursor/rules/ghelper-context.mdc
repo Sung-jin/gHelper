@@ -1,0 +1,10 @@
+---
+description: gHelper 프로젝트 요구사항·방향성·워크플로 참조
+alwaysApply: true
+---
+
+# gHelper 컨텍스트
+
+- **전체 정리**: `docs/CONTEXT.md` 참고 (요구사항, 방향성, 라벨링 워크플로, 해야 할 일, analyze/ Git 여부).
+- 습격 라벨링 시: meta에 `source_file`, `area_id` 넣지 않음. `area_name`만 사용.
+- mapping.json, 80a0/8080/f180 는 참고용이며 신뢰하지 않음. 패킷/유형은 처음부터 파악.
