@@ -1,12 +1,14 @@
+# PacketAnalyzer 전용 빌드. analyzer + utils + recording + mapping 만 포함.
+# capture, label 스크립트는 제외.
 name: Build PacketAnalyzer EXE
 
 on:
-  workflow_dispatch: # 수동으로 빌드 실행
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -24,40 +26,30 @@ jobs:
       - name: Inject Secrets into Config
         shell: pwsh
         run: |
-          # analyzer.py에 설정된 기본 웹훅 URL을 GitHub Secret 값으로 교체합니다.
-          $codeFile = "engine/tools/analyzer.py"
+          $codeFile = "engine/tools/analyzer/analyzer.py"
           $webhook = "${{ secrets.DISCORD_WEBHOOK_ETERNAL }}"
-          
           if ([string]::IsNullOrEmpty($webhook)) {
               Write-Error "GitHub Secrets에 DISCORD_WEBHOOK_ETERNAL이 설정되지 않았습니다!"
               exit 1
           }
-          
-          # 코드 내의 DEFAULT_WEBHOOK_URL 변수 라인을 Secret 값으로 치환
           $content = Get-Content $codeFile -Raw
           $newContent = $content -replace 'DEFAULT_WEBHOOK_URL\s*=\s*"[^"]*"', "DEFAULT_WEBHOOK_URL = `"$webhook`""
           $newContent | Set-Content $codeFile -NoNewline
-          
           Write-Host "Discord Webhook URL 주입 완료."
 
       - name: Build EXE with PyInstaller
         shell: pwsh
         working-directory: engine/tools
         run: |
-          # 1. 빌드 수행
           pyinstaller --onefile `
                       --uac-admin `
                       --name "PacketAnalyzer" `
                       --clean `
                       --paths "." `
-                      analyzer.py
-          
-          # 2. 배포용 폴더(out) 생성 및 파일 모으기
-          # (dist 폴더의 EXE와 현재 폴더의 mapping.json을 out 폴더로 복사)
+                      analyzer/analyzer.py
           New-Item -ItemType Directory -Force -Path "out"
           Copy-Item "dist/PacketAnalyzer.exe" -Destination "out/"
           Copy-Item "mapping.json" -Destination "out/"
-          
           Write-Host "배포용 패키지 준비 완료 (out 폴더)"
 
       - name: Upload Artifact

@@ -1,7 +1,12 @@
-import scapy.all as scapy
-import datetime
+# tools/analyzer: 패킷 분석·디스코드 알림 전용. EXE 빌드 시 이 진입점만 사용.
 import sys
 import os
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+import scapy.all as scapy
+import datetime
 import time
 import re
 from utils import ConfigManager, Notifier
@@ -60,7 +65,7 @@ def process_complete_block(block_hex):
         type_name = raid_mapping[detected_key].get("type", "알 수 없는 단계")
 
         # 디스코드 즉시 알림 발송
-        notifier.send_discord(f"🚨 [{type_name}] {loc_name}")
+        # notifier.send_discord(f"🚨 [{type_name}] {loc_name}") # 분석 전까지 알림 비활성화
 
         alert_cooldowns[cooldown_key] = current_time
 

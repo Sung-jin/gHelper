@@ -1,0 +1,10 @@
+{
+  "interval": 60,
+  "region": "",
+  "output_dir": "",
+  "keyword": "습격",
+  "lang": "kor+eng",
+  "cooldown": 5.0,
+  "dedupe_day": true,
+  "on_trigger_cmd": ""
+}

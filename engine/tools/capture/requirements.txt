@@ -1,0 +1,4 @@
+# 습격 OCR 감지 (raid_ocr.py)
+pillow>=10.0.0
+pytesseract>=0.3.10
+mss>=9.0.0
