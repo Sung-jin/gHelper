@@ -21,7 +21,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller pillow pytesseract mss
+          pip install pyinstaller
+          pip install -r engine/tools/capture/requirements.txt
 
       - name: Build RaidOcr EXE
         shell: pwsh

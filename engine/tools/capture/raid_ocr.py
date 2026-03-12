@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -41,6 +42,37 @@ def _load_config() -> dict | None:
             return json.load(f)
     except Exception:
         return None
+
+
+def _find_tesseract_exe(config: dict | None) -> str | None:
+    """
+    Tesseract 실행 파일 경로 찾기. Windows에서는 PATH에 없을 수 있어 흔한 설치 경로를 시도.
+    config["tesseract_cmd"] 가 있으면 우선 사용 (설정 파일 또는 환경변수 대체용).
+    """
+    if config and config.get("tesseract_cmd"):
+        p = Path(config["tesseract_cmd"]).resolve()
+        if p.is_file():
+            return str(p)
+        if (p / "tesseract.exe").is_file():
+            return str(p / "tesseract.exe")
+    if sys.platform == "win32":
+        for candidate in [
+            Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"),
+            Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
+            Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "Tesseract-OCR" / "tesseract.exe",
+        ]:
+            if candidate.is_file():
+                return str(candidate)
+    return shutil.which("tesseract")
+
+
+def _setup_tesseract(config: dict | None) -> None:
+    """pytesseract가 Tesseract 실행 파일을 찾을 수 있도록 경로 설정. main()에서 한 번 호출."""
+    tesseract_path = _find_tesseract_exe(config)
+    if tesseract_path:
+        import pytesseract
+        pytesseract.pytesseract.tesseract_cmd = tesseract_path
+    # PATH에 있으면 별도 설정 없이 동작함
 
 
 def _load_region_file() -> str:
@@ -221,6 +253,19 @@ def main() -> int:
         print("필요 패키지: pip install pillow pytesseract mss", file=sys.stderr)
         print(f"ImportError: {e}", file=sys.stderr)
         return 1
+
+    # Windows 등에서 Tesseract 실행 파일 경로를 못 찾는 경우 대비 (설정 또는 흔한 경로 시도)
+    _setup_tesseract(config)
+    try:
+        import pytesseract as _pt
+        _pt.get_tesseract_version()
+    except Exception as e:
+        print("Tesseract를 찾을 수 없습니다. 다음을 확인하세요:", file=sys.stderr)
+        print("  1) Tesseract 설치: https://github.com/UB-Mannheim/tesseract/wiki (한글 데이터 선택)", file=sys.stderr)
+        print("  2) 설정 파일(raid_ocr_config.json)에 tesseract_cmd 로 설치 경로 지정. 예: \"tesseract_cmd\": \"C:\\\\Program Files\\\\Tesseract-OCR\\\\tesseract.exe\"", file=sys.stderr)
+        print(f"  오류: {e}", file=sys.stderr)
+        return 1
+
     out_dir = args.output_dir.strip()
     if not out_dir:
         out_dir = str(_get_base_dir() / "triggers")

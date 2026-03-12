@@ -6,5 +6,6 @@
   "lang": "kor+eng",
   "cooldown": 5.0,
   "dedupe_day": true,
-  "on_trigger_cmd": ""
+  "on_trigger_cmd": "",
+  "tesseract_cmd": "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
 }
