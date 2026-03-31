@@ -1,130 +1,192 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, markRaw, defineAsyncComponent } from 'vue'
 
-interface ProcessInfo {
-  pid: number;
-  name: string;
-}
+// 동적 컴포넌트 로드
+const EternalDashboard = defineAsyncComponent(() => import('@render/games/eternalCity/Dashboard.vue'))
+
+interface ProcessGroup { name: string; pids: number[]; }
+interface Manager { id: string; label: string; processKeywords: string[]; }
 
 const isMonitoring = ref(false)
-const statusMessage = ref('')
-const statusType = ref<'info' | 'error' | 'success'>('info')
-const logs = ref<string[]>([])
-const processes = ref<ProcessInfo[]>([])
-const selectedPid = ref<number | null>(null)
-const searchQuery = ref('') // 필터 입력값
+const processes = ref<ProcessGroup[]>([])
+const supportedManagers = ref<Manager[]>([])
+const selectedProcess = ref<ProcessGroup | null>(null)
+const selectedManagerId = ref('')
+const searchQuery = ref('')
 
-// 필터링된 프로세스 목록 (Computed)
+const activeDashboard = computed(() => {
+  if (selectedManagerId.value === 'eternal-city') return markRaw(EternalDashboard)
+  return null
+})
+
+const refreshProcesses = async () => {
+  const list = await (window as any).electronAPI.getProcessList()
+  processes.value = list
+}
+
+onMounted(async () => {
+  refreshProcesses()
+  // TypeError 방지: API 존재 여부 확인 후 호출
+  if ((window as any).electronAPI.getSupportedManagers) {
+    supportedManagers.value = await (window as any).electronAPI.getSupportedManagers()
+  }
+})
+
+watch(selectedProcess, (newProc) => {
+  if (!newProc) return
+  const procName = newProc.name.toLowerCase()
+  const recommended = supportedManagers.value.find(m =>
+    m.processKeywords.some(key => procName.includes(key.toLowerCase()))
+  )
+  if (recommended) selectedManagerId.value = recommended.id
+})
+
 const filteredProcesses = computed(() => {
   if (!searchQuery.value) return processes.value
   const query = searchQuery.value.toLowerCase()
-  return processes.value.filter(proc =>
-    proc.name.toLowerCase().includes(query) || proc.pid.toString().includes(query)
-  )
+  return processes.value.filter(p => p.name.toLowerCase().includes(query))
 })
 
-const setStatus = (msg: string, type: 'info' | 'error' | 'success' = 'info') => {
-  statusMessage.value = msg
-  statusType.value = type
+const handleConnect = () => {
+  if (selectedProcess.value && selectedManagerId.value) isMonitoring.value = true
 }
 
-const refreshProcesses = async () => {
-  try {
-    const list = await (window as any).electronAPI.getProcessList()
-    processes.value = list
-  } catch (err) {
-    setStatus('프로세스 목록을 불러오지 못했습니다.', 'error')
-  }
+const handleStop = () => {
+  isMonitoring.value = false
+  selectedProcess.value = null
+  selectedManagerId.value = ''
+  refreshProcesses()
 }
 
-const startMonitor = async () => {
-  if (!selectedPid.value) return setStatus('프로세스를 선택해주세요.', 'error')
-  logs.value = []
-  setStatus('모니터링 시작 중...', 'info')
-
-  const result = await (window as any).electronAPI.startMonitoring(selectedPid.value)
-  if (result.success) {
-    isMonitoring.value = true
-    setStatus('모니터링 중: 데이터가 기록되고 있습니다.', 'success')
-  } else {
-    setStatus(`오류: ${result.error}`, 'error')
-  }
-}
-
-const stopMonitor = async () => {
-  const success = await (window as any).electronAPI.stopMonitoring()
-  if (success) {
-    isMonitoring.value = false
-    setStatus('모니터링이 중지되었습니다.', 'info')
-  }
-}
-
-onMounted(() => {
-  refreshProcesses();
-  (window as any).electronAPI.onStatusUpdate((msg: string) => {
-    if (msg.includes('Permission denied') || msg.includes('Npcap')) {
-      setStatus(`권한 오류: 관리자 권한으로 실행하거나 Npcap을 확인하세요.`, 'error')
-    }
-  });
-  (window as any).electronAPI.onLogUpdate((log: string) => {
-    logs.value.unshift(log)
-    if (logs.value.length > 100) logs.value.pop()
-  });
-})
+const formatName = (name: string) => name.split(/[\\/]/).pop()
+const closeApp = () => (window as any).electronAPI.closeApp()
 </script>
 
 <template>
-  <div class="container">
-    <div v-if="statusMessage" :class="['status-bar', statusType]">
-      {{ statusMessage }}
-    </div>
+  <div class="app-wrapper">
+    <header class="drag-handle">
+      <span class="logo">gHelper</span>
+      <button class="close-btn" @click="closeApp">×</button>
+    </header>
 
-    <div class="controls">
-      <input
-        v-model="searchQuery"
-        placeholder="프로세스 이름 또는 PID 검색..."
-        class="filter-input"
-        :disabled="isMonitoring"
+    <main class="main-body">
+      <div v-if="!isMonitoring" class="selector-container">
+        <h2 class="title">Engine Selector</h2>
+
+        <div class="control-grid mb-10">
+          <input v-model="searchQuery" placeholder="Search..." class="widget-input" />
+          <div class="select-box">
+            <select v-model="selectedProcess" class="widget-select">
+              <option :value="null" disabled>Select Process</option>
+              <option v-for="p in filteredProcesses" :key="p.name" :value="p">
+                {{ formatName(p.name) }} ({{ p.pids.length }})
+              </option>
+            </select>
+          </div>
+          <button @click="refreshProcesses" class="btn-icon">🔄</button>
+          <div class="spacer"></div> </div>
+
+        <div class="control-grid">
+          <div class="manager-label">Manager</div>
+          <div class="select-box">
+            <select v-model="selectedManagerId" class="widget-select highlight">
+              <option value="" disabled>Select Manager (Engine)</option>
+              <option v-for="m in supportedManagers" :key="m.id" :value="m.id">
+                {{ m.label }}
+              </option>
+            </select>
+          </div>
+          <div class="spacer"></div>
+          <button @click="handleConnect" :disabled="!selectedProcess || !selectedManagerId" class="btn-primary">Connect</button>
+        </div>
+      </div>
+
+      <component
+        v-else
+        :is="activeDashboard"
+        :targetProcess="JSON.parse(JSON.stringify(selectedProcess))"
+        :managerId="selectedManagerId"
+        @stop="handleStop"
       />
-
-      <select v-model="selectedPid" :disabled="isMonitoring" class="process-select">
-        <option :value="null" disabled>프로세스 선택 ({{ filteredProcesses.length }}개)</option>
-        <option v-for="proc in filteredProcesses" :key="proc.pid" :value="proc.pid">
-          [{{ proc.pid }}] {{ proc.name.length > 30 ? proc.name.substring(0, 30) + '...' : proc.name }}
-        </option>
-      </select>
-
-      <button @click="refreshProcesses" :disabled="isMonitoring" class="refresh-btn">🔄</button>
-      <button v-if="!isMonitoring" @click="startMonitor" class="start-btn">시작</button>
-      <button v-else @click="stopMonitor" class="stop-btn">중지</button>
-    </div>
-
-    <div class="log-container">
-      <div v-if="logs.length === 0" class="no-log">Packet logs will appear here...</div>
-      <div v-for="(log, index) in logs" :key="index" class="log-item">{{ log }}</div>
-    </div>
+    </main>
   </div>
 </template>
 
-<style scoped>
-.container { padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-.status-bar { padding: 10px; margin-bottom: 15px; border-radius: 4px; font-weight: bold; font-size: 0.85rem; }
-.info { background: #e3f2fd; color: #1976d2; }
-.error { background: #ffebee; color: #c62828; border: 1px solid #c62828; }
-.success { background: #e8f5e9; color: #2e7d32; }
-
-.controls { display: flex; gap: 8px; margin-bottom: 15px; align-items: center; width: 100%; }
-.filter-input { width: 200px; padding: 8px; border-radius: 4px; border: 1px solid #ddd; }
-.process-select { flex: 1; min-width: 0; max-width: 400px; padding: 8px; border-radius: 4px; border: 1px solid #ddd; background: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-.refresh-btn { padding: 8px; background: #eee; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; }
-.start-btn { padding: 8px 20px; background: #2ecc71; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-.stop-btn { padding: 8px 20px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
-
-.log-container {
-  background: #2d2d2d; color: #69f0ae; padding: 12px;
-  height: 450px; overflow-y: auto; border-radius: 4px; font-family: 'Consolas', monospace; font-size: 0.8rem;
-  box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+<style>
+/* 기존 전역 스타일 유지 및 투명화 방지 추가 */
+html, body, #app {
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 100vh;
+  width: 100vw;
+  background: #121212; /* 검은색 배경 고정 */
+  color: #eee;
+  overflow: hidden;
+  font-family: sans-serif;
 }
-.log-item { border-bottom: 1px solid #3d3d3d; padding: 3px 0; }
-.no-log { color: #555; text-align: center; margin-top: 200px; }
+
+.app-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #121212;
+}
+
+.drag-handle {
+  height: 32px;
+  background: #1a1a1a;
+  -webkit-app-region: drag;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid #2d2d2d;
+}
+
+.close-btn {
+  -webkit-app-region: no-drag;
+  background: none; border: none; color: #888; font-size: 20px; cursor: pointer;
+}
+
+.main-body { flex: 1; padding: 15px; display: flex; flex-direction: column; background: #121212; }
+
+.title { font-size: 18px; margin: 0 0 15px 0; font-weight: bold; }
+
+.control-grid {
+  display: grid;
+  grid-template-columns: 80px 1fr 35px 70px;
+  gap: 6px;
+  align-items: center;
+}
+
+.mb-10 { margin-bottom: 10px; }
+
+.widget-input, .widget-select {
+  height: 32px;
+  background: #252525;
+  border: 1px solid #333;
+  color: white;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.widget-select.highlight {
+  border-color: #2ecc71; /* 추천 매니저 강조색 */
+}
+
+.manager-label {
+  font-size: 11px;
+  color: #888;
+  text-align: right;
+  padding-right: 5px;
+}
+
+.btn-icon { height: 32px; background: #333; border: none; color: white; border-radius: 4px; cursor: pointer; }
+.btn-primary { height: 32px; background: #2ecc71; border: none; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 12px; }
+.btn-primary:disabled { background: #2a2a2a; color: #555; }
+
+.select-box { min-width: 0; }
 </style>

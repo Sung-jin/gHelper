@@ -12,7 +12,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-#        os: [windows-latest, macos-latest]
         os: [windows-latest]
 
     steps:
@@ -23,7 +22,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm' # npm 패키지 캐싱으로 빌드 속도 향상
+          cache: 'npm'
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -32,32 +31,60 @@ jobs:
           cache: 'pip'
           cache-dependency-path: 'engine/requirements.txt'
 
-      # 1. OS별 가상환경 구축 및 의존성 설치
-      - name: Install Python Dependencies
+      # 1. 가상환경 구축, 설정 수정 및 의존성 설치
+      - name: Setup Python Engine
         run: |
-          python -m venv engine/venv
-          ${{ matrix.os == 'windows-latest' && './engine/venv/Scripts/pip' || './engine/venv/bin/pip' }} install -r engine/requirements.txt
+          # 1. 파이썬 및 pip 기본 세팅
+          curl -L https://www.python.org/ftp/python/3.9.13/python-3.9.13-embed-amd64.zip -o python_embed.zip
+          mkdir -p engine/venv/Scripts
+          unzip python_embed.zip -d engine/venv/Scripts
+          curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+          ./engine/venv/Scripts/python.exe get-pip.py --target ./engine/venv/Scripts
+          
+          # 2. ._pth 설정
+          echo -e ".\npython39.zip\nLib/site-packages\nimport site" > engine/venv/Scripts/python39._pth
+          
+          # 3. 의존성 설치 (버전 제거 후 설치)
+          TARGET_PATH=$(pwd)/engine/venv/Scripts/Lib/site-packages
+          mkdir -p "$TARGET_PATH"
+          
+          echo "Processing requirements.txt files..."
+          # tests 폴더를 제외한 모든 requirements.txt를 찾아서 처리
+          find engine -name "requirements.txt" -not -path "*/tests/*" | while read req; do
+            echo "Installing from $req (Cleaning versions...)"
+            # 'package==1.2.3'을 'package'로 임시 변환하여 pip에게 전달
+            # 로컬 원본 파일은 건드리지 않고 파이프로 전달하는 방식이 더 안전합니다.
+            sed 's/==.*//g' "$req" > temp_req.txt
+          
+            ./engine/venv/Scripts/python.exe -m pip install \
+              --target "$TARGET_PATH" \
+              --no-cache-dir \
+              -r temp_req.txt
+          done
+          
+          # 4. 최종 결과 확인
+          echo "Successfully installed modules:"
+          ls -F "$TARGET_PATH"
         shell: bash
 
       # 2. Node.js 의존성 설치
       - name: Install NPM Dependencies
         run: npm ci
 
-      # 3. Electron 빌드 실행
+      # 3. Electron 빌드 실행 (Vite define 설정을 위해 env 주입)
       - name: Build Electron App
         run: npm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DISCORD_WEBHOOK_ETERNAL: ${{ secrets.DISCORD_WEBHOOK_ETERNAL }}
 
-      # 4. 빌드 결과물 업로드 (Artifacts)
+      # 4. 빌드 결과물 업로드
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gHelper-build-${{ matrix.os }}
           path: |
             dist/*.exe
-            dist/*.dmg
             dist/*.zip
             dist/*.pkg
           if-no-files-found: error
